@@ -1,0 +1,44 @@
+{
+    "name": "amphp/quic",
+    "authors": [
+        {
+            "name": "Bob Weinand",
+            "email": "bobwei9@hotmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {
+        "amphp/socket": "^2",
+        "ext-ffi": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9",
+        "amphp/phpunit-util": "^3",
+        "amphp/php-cs-fixer-config": "^2",
+        "amphp/process": "^2",
+        "psalm/phar": "^5.4",
+        "ircmaxell/ffime": "dev-master"
+    },
+    "autoload": {
+        "psr-4": {
+            "Amp\\Quic\\": "src"
+        },
+        "files": [
+            "src/functions.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Amp\\Quic\\": "test"
+        }
+    },
+    "scripts": {
+        "check": [
+            "@cs",
+            "@test"
+        ],
+        "cs": "PHP_CS_FIXER_IGNORE_ENV=1 php-cs-fixer fix -v --diff --dry-run",
+        "cs-fix": "PHP_CS_FIXER_IGNORE_ENV=1 php-cs-fixer fix -v --diff",
+        "test": "@php -dzend.assertions=1 -dassert.exception=1 ./vendor/bin/phpunit --coverage-text"
+    }
+}

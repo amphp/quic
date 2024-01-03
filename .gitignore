@@ -1,0 +1,9 @@
+.php_cs.cache
+.php-cs-fixer.cache
+.phpunit.result.cache
+build
+composer.lock
+phpunit.xml
+vendor
+composer-require-checker.phar
+test/keylog.log
