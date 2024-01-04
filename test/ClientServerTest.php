@@ -257,13 +257,20 @@ class ClientServerTest extends AsyncTestCase
         $client = connect("127.0.0.1:7463", $cfg);
         $socket = $client->openStream();
         $str = \implode(\range(1, 1900));
-        // Many single $socket->write to fully test notifyWritable()
         EventLoop::queue(function () use ($socket, $str) {
+            // Many single $socket->write to fully test notifyWritable()
+            EventLoop::queue(function () use ($socket, $str) {
+                $socket->write($str);
+            });
+            $socket->write($str);
             $socket->write($str);
         });
-        $socket->write($str);
-        $socket->write($str);
-        $this->assertSame($str . $str . $str, $socket->read() . $socket->read() . $socket->read() . $socket->read());
+        $size = \strlen($str . $str . $str);
+        $buf = "";
+        for ($i = 0; $i < 4 && \strlen($buf) !== $size; ++$i) {
+            $buf .= $socket->read();
+        }
+        $this->assertSame($str . $str . $str, $buf);
         $socket->end();
 
         $this->assertNull($socket->read());
@@ -573,7 +580,7 @@ class ClientServerTest extends AsyncTestCase
 
         $server = $this->spawnEchoServer();
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
-            ->withIdleTimeout(0.1)
+            ->withIdleTimeout(0.2)
             ->withKeylogFile($keylog);
         $client = connect("127.0.0.1:7463", $cfg);
         $socket = $client->openStream();
@@ -584,9 +591,9 @@ class ClientServerTest extends AsyncTestCase
         $this->assertSame("hey", $socket->read());
 
         EventLoop::queue(function () use ($client) {
-            \Amp\delay(0.05);
+            \Amp\delay(0.1);
             $client->ping();
-            \Amp\delay(0.05);
+            \Amp\delay(0.1);
             $client->ping();
         });
 
@@ -596,7 +603,7 @@ class ClientServerTest extends AsyncTestCase
         $this->assertTrue($client->isClosed());
 
         // ensure pings actually delay idle
-        $this->assertGreaterThan(0.2, \microtime(true) - $time);
+        $this->assertGreaterThan(0.4, \microtime(true) - $time);
 
         $server->close();
 
@@ -611,9 +618,9 @@ class ClientServerTest extends AsyncTestCase
 
     public function testConnectionServerPing()
     {
-        $server = $this->spawnEchoServer(fn (QuicServerConfig $cfg) => $cfg->withPingPeriod(0.05));
+        $server = $this->spawnEchoServer(fn (QuicServerConfig $cfg) => $cfg->withPingPeriod(0.1));
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
-            ->withIdleTimeout(0.1);
+            ->withIdleTimeout(0.2);
         $client = connect("127.0.0.1:7463", $cfg);
         $socket = $client->openStream();
 
@@ -622,7 +629,7 @@ class ClientServerTest extends AsyncTestCase
         $socket->write("hey");
         $this->assertSame("hey", $socket->read());
 
-        \Amp\delay(0.15);
+        \Amp\delay(0.3);
 
         // let's verify the hasn't timed out
         $socket->write("still alive");
@@ -640,8 +647,8 @@ class ClientServerTest extends AsyncTestCase
     {
         $server = $this->spawnEchoServer();
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
-            ->withIdleTimeout(0.1)
-            ->withPingPeriod(0.05);
+            ->withIdleTimeout(0.2)
+            ->withPingPeriod(0.1);
         $client = connect("127.0.0.1:7463", $cfg);
         $socket = $client->openStream();
 
@@ -650,7 +657,7 @@ class ClientServerTest extends AsyncTestCase
         $socket->write("hey");
         $this->assertSame("hey", $socket->read());
 
-        \Amp\delay(0.15);
+        \Amp\delay(0.3);
 
         // let's verify the hasn't timed out
         $socket->write("still alive");
