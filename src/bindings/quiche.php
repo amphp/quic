@@ -1,21 +1,23 @@
 <?php
+
 namespace Amp\Quic\Bindings;
+
+if (!defined('AMP_QUIC_LIBQUICHE_PATH')) {
+    $uname_map = ['aarch64' => 'aarch64', 'arm64' => 'aarch64', 'amd64' => 'x86_64', 'x86_64' => 'x86_64'];
+    if (PHP_OS_FAMILY === 'Darwin') {
+        $suffix = '.dylib';
+    } elseif (glob('/lib/ld-musl-*')) {
+        $suffix = '-musl.so';
+    } else {
+        $suffix = '-gnu.so';
+    }
+    define('AMP_QUIC_LIBQUICHE_PATH', __DIR__ . "/libquiche-{$uname_map[php_uname('m')]}$suffix");
+}
+
 use FFI;
 use Amp\Quic\Bindings\double;
 interface iQuiche {}
 interface iQuiche_ptr {}
-/**
- * @property string_ptr $tzname
- * @property int $getdate_err
- * @property int $timezone
- * @property int $daylight
- * @property struct_in6_addr $in6addr_any
- * @property struct_in6_addr $in6addr_loopback
- * @property struct_in6_addr $in6addr_nodelocal_allnodes
- * @property struct_in6_addr $in6addr_linklocal_allnodes
- * @property struct_in6_addr $in6addr_linklocal_allrouters
- * @property struct_in6_addr $in6addr_linklocal_allv2routers
- */
 class Quiche {
     const QUICHE_PROTOCOL_VERSION = 0x00000001;
     const QUICHE_MAX_CONN_ID_LEN = 20;
@@ -29,7 +31,7 @@ class Quiche {
     public static function sizeof($classOrObject): int { return QuicheFFI::sizeof($classOrObject); }
 }
 class QuicheFFI {
-    const SOFILE = __DIR__ . '/libquiche.' . (PHP_OS_FAMILY === 'Darwin' ? 'dylib' : 'so');
+    const SOFILE = AMP_QUIC_LIBQUICHE_PATH;
     const TYPES_DEF = 'typedef int8_t int_least8_t;
 typedef int16_t int_least16_t;
 typedef int32_t int_least32_t;
