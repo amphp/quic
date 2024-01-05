@@ -14,6 +14,7 @@ use Amp\ByteStream\ClosedException;
 use Amp\ByteStream\PendingReadError;
 use Amp\ByteStream\StreamException;
 use Amp\DeferredFuture;
+use Amp\Future;
 use Amp\PHPUnit\AsyncTestCase;
 use Amp\Quic\Quiche\QuicheStats;
 use Amp\Socket\BindContext;
@@ -22,6 +23,7 @@ use Amp\Socket\ClientTlsContext;
 use Amp\Socket\ServerTlsContext;
 use Amp\Socket\SocketException;
 use Revolt\EventLoop;
+use function Amp\async;
 use function Amp\Socket\bindUdpSocket;
 
 //define("AMP_QUIC_HEAVY_DEBUGGING", true);
@@ -33,7 +35,7 @@ class ClientServerTest extends AsyncTestCase
     private bool $finished;
     private DeferredFuture $finishedDeferred;
 
-    protected function spawnEchoServer($alterConfig = null)
+    protected function spawnEchoServer($alterConfig = null): QuicServerSocket
     {
         $this->finished = false;
         $tls = (new ServerTlsContext)
@@ -59,7 +61,7 @@ class ClientServerTest extends AsyncTestCase
         return $server;
     }
 
-    public function testSimple()
+    public function testSimple(): void
     {
         $server = $this->spawnEchoServer();
 
@@ -98,7 +100,7 @@ class ClientServerTest extends AsyncTestCase
         $this->assertTrue($this->finished);
     }
 
-    protected function spawnUdpEchoServer()
+    protected function spawnUdpEchoServer(): QuicServerSocket
     {
         $this->finishedDeferred = new DeferredFuture;
         $tls = (new ServerTlsContext)
@@ -117,7 +119,7 @@ class ClientServerTest extends AsyncTestCase
         return $server;
     }
 
-    public function testDatagramEcho()
+    public function testDatagramEcho(): void
     {
         $server = $this->spawnUdpEchoServer();
         $client = connect("127.0.0.1:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
@@ -135,7 +137,7 @@ class ClientServerTest extends AsyncTestCase
         $server->close();
     }
 
-    public function testLargeDatagramEcho()
+    public function testLargeDatagramEcho(): void
     {
         $server = $this->spawnUdpEchoServer();
         $tls = (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification();
@@ -167,7 +169,7 @@ class ClientServerTest extends AsyncTestCase
         $server->close();
     }
 
-    protected function spawnMultiStreamServer()
+    protected function spawnMultiStreamServer(): QuicServerSocket
     {
         $this->finished = false;
         $tls = (new ServerTlsContext)
@@ -202,7 +204,7 @@ class ClientServerTest extends AsyncTestCase
         return $server;
     }
 
-    public function testServerInitiatedStreams()
+    public function testServerInitiatedStreams(): void
     {
         $this->spawnMultiStreamServer();
         $client = connect("[::]:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
@@ -248,7 +250,7 @@ class ClientServerTest extends AsyncTestCase
         $this->assertNull($client->accept());
     }
 
-    public function testSendFragmentedMessage()
+    public function testSendFragmentedMessage(): void
     {
         $server = $this->spawnEchoServer();
 
@@ -278,7 +280,7 @@ class ClientServerTest extends AsyncTestCase
         $server->close();
     }
 
-    protected function spawnStreamResetServer()
+    protected function spawnStreamResetServer(): void
     {
         $this->finished = false;
         $tls = (new ServerTlsContext)
@@ -292,7 +294,7 @@ class ClientServerTest extends AsyncTestCase
         });
     }
 
-    public function testReadingWithStreamReset()
+    public function testReadingWithStreamReset(): void
     {
         $this->spawnStreamResetServer();
         $client = connect("[::]:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
@@ -305,7 +307,7 @@ class ClientServerTest extends AsyncTestCase
 
         $weak = new \WeakMap;
         $weak[$client] = new class($deferred = new DeferredFuture) {
-            public function __construct(public $deferred)
+            public function __construct(public DeferredFuture $deferred)
             {
             }
 
@@ -320,7 +322,7 @@ class ClientServerTest extends AsyncTestCase
         EventLoop::cancel($timeout);
     }
 
-    protected function spawnCloseServer()
+    protected function spawnCloseServer(): QuicServerSocket
     {
         $tls = (new ServerTlsContext)
             ->withDefaultCertificate(new Certificate(__DIR__ . "/cert.pem", __DIR__ . "/key.pem"))
@@ -343,7 +345,7 @@ class ClientServerTest extends AsyncTestCase
         return $server;
     }
 
-    public function testCloseWithPendingWrites()
+    public function testCloseWithPendingWrites(): void
     {
         $server = $this->spawnCloseServer();
 
@@ -388,7 +390,7 @@ class ClientServerTest extends AsyncTestCase
         $await->getFuture()->await();
     }
 
-    protected function spawnStreamCloseServer()
+    protected function spawnStreamCloseServer(): QuicServerSocket
     {
         $tls = (new ServerTlsContext)
             ->withDefaultCertificate(new Certificate(__DIR__ . "/cert.pem", __DIR__ . "/key.pem"))
@@ -410,7 +412,7 @@ class ClientServerTest extends AsyncTestCase
         return $server;
     }
 
-    public function testStreamCloseWithPendingWrite()
+    public function testStreamCloseWithPendingWrite(): void
     {
         $server = $this->spawnStreamCloseServer();
 
@@ -434,7 +436,7 @@ class ClientServerTest extends AsyncTestCase
         $await->getFuture()->await();
     }
 
-    public function testPriority()
+    public function testPriority(): void
     {
         $server = $this->spawnEchoServer();
 
@@ -462,7 +464,7 @@ class ClientServerTest extends AsyncTestCase
         $await->getFuture()->await();
     }
 
-    public function testTlsInfo()
+    public function testTlsInfo(): void
     {
         $server = $this->spawnEchoServer();
 
@@ -480,7 +482,7 @@ class ClientServerTest extends AsyncTestCase
         $await->getFuture()->await();
     }
 
-    protected function spawnConnectionSpammedServer()
+    protected function spawnConnectionSpammedServer(): QuicServerSocket
     {
         $tls = (new ServerTlsContext)
             ->withDefaultCertificate(new Certificate(__DIR__ . "/cert.pem", __DIR__ . "/key.pem"))
@@ -498,7 +500,7 @@ class ClientServerTest extends AsyncTestCase
         return $server;
     }
 
-    public function testConnectionQueuing()
+    public function testConnectionQueuing(): void
     {
         $server = $this->spawnConnectionSpammedServer();
         $successReads = 0;
@@ -523,7 +525,7 @@ class ClientServerTest extends AsyncTestCase
         $server->close();
     }
 
-    public function assertAtMostUnreferenced(int $allowed)
+    public function assertAtMostUnreferenced(int $allowed): void
     {
         $total = 0;
         $unreferenced = 0;
@@ -536,7 +538,7 @@ class ClientServerTest extends AsyncTestCase
         $this->assertSame($allowed, $total - $unreferenced);
     }
 
-    public function testUnreferencing()
+    public function testUnreferencing(): void
     {
         $server = $this->spawnEchoServer();
         \Amp\delay(0);
@@ -573,7 +575,7 @@ class ClientServerTest extends AsyncTestCase
         $await->getFuture()->await();
     }
 
-    public function testConnectionIdle()
+    public function testConnectionIdle(): void
     {
         $keylog = __DIR__ . "/keylog.log";
         @\unlink($keylog);
@@ -616,15 +618,13 @@ class ClientServerTest extends AsyncTestCase
         $this->assertGreaterThan(500, \filesize($keylog));
     }
 
-    public function testConnectionServerPing()
+    public function testConnectionServerPing(): void
     {
         $server = $this->spawnEchoServer(fn (QuicServerConfig $cfg) => $cfg->withPingPeriod(0.1));
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
             ->withIdleTimeout(0.2);
         $client = connect("127.0.0.1:7463", $cfg);
         $socket = $client->openStream();
-
-        $time = \microtime(true);
 
         $socket->write("hey");
         $this->assertSame("hey", $socket->read());
@@ -643,7 +643,7 @@ class ClientServerTest extends AsyncTestCase
         $await->getFuture()->await();
     }
 
-    public function testConnectionClientPing()
+    public function testConnectionClientPing(): void
     {
         $server = $this->spawnEchoServer();
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
@@ -671,28 +671,34 @@ class ClientServerTest extends AsyncTestCase
         $await->getFuture()->await();
     }
 
-    public function spawnMultiInterfaceEchoServer()
+    /**
+     * @return array{QuicServerSocket, Future<QuicConnection>}
+     * @throws SocketException
+     */
+    public function spawnMultiInterfaceEchoServer(): array
     {
         $tls = (new ServerTlsContext)
             ->withDefaultCertificate(new Certificate(__DIR__ . "/cert.pem", __DIR__ . "/key.pem"))
             ->withApplicationLayerProtocols(["test"]);
         $server = bind(["0.0.0.0:7463", "[::]:7463"], $tls);
-        EventLoop::defer(function () use ($server, &$socket) {
-            $socket = $server->acceptConnection();
+
+        $future = async($server->acceptConnection(...));
+
+        $future->map(static function (QuicConnection $socket): void {
             $stream = $socket->accept();
             while (null !== $data = $stream->read()) {
                 $stream->write($data);
             }
             $stream->end();
-        });
+        })->ignore();
 
-        return [$server, &$socket];
+        return [$server, $future];
     }
 
-    public function testConnectionMigration()
+    public function testConnectionMigration(): void
     {
         $srv = $this->spawnMultiInterfaceEchoServer();
-        [$server, &$serverSocket] = $srv;
+        [$server, $future] = $srv;
 
         // proxy through another udp server to test migration
         $intermediary = bindUdpSocket("0.0.0.0:7464");
@@ -729,6 +735,8 @@ class ClientServerTest extends AsyncTestCase
 
         $this->assertSame("hey, I'm back", $socket->read());
 
+        $serverSocket = $future->await();
+
         /** @var QuicheStats $stats */
         $stats = $serverSocket->stats();
         $this->assertCount(2, $stats->paths);
@@ -746,7 +754,7 @@ class ClientServerTest extends AsyncTestCase
         EventLoop::cancel($id);
     }
 
-    public function testVersionNegotiation()
+    public function testVersionNegotiation(): void
     {
         $this->spawnEchoServer();
         // bytes 2 to 5 are 0xffffffff, i.e. an unknown version id, everything else is just an arbitrary initial handshake without padding
