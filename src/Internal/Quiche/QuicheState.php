@@ -75,7 +75,7 @@ abstract class QuicheState
 
         \stream_set_blocking($socket, false);
 
-        $this->writeIds[(int) $socket] = EventLoop::onWritable($socket, function (string $watcher, $socket) {
+        $writeId = EventLoop::onWritable($socket, function (string $watcher, $socket) {
             static $errorHandler;
             $errorHandler ??= static function (int $errno, string $errstr): void {};
 
@@ -99,6 +99,8 @@ abstract class QuicheState
 
             EventLoop::disable($watcher);
         });
+        EventLoop::disable($writeId);
+        $this->writeIds[(int) $socket] = $writeId;
     }
 
     protected static function sockaddrFromInternetAddress(InternetAddress $localAddress): struct_sockaddr_in_ptr | struct_sockaddr_in6_ptr
