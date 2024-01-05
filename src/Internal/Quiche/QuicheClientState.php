@@ -28,17 +28,18 @@ class QuicheClientState extends QuicheState
     private ?EventLoop\Suspension $startSuspension;
     private string $pingTimerId;
 
-    public static function connect($host, $socket, QuicClientConfig $config, ?Cancellation $cancellation): QuicheConnection
+    /** @param $socket resource */
+    public static function connect(string $host, $socket, QuicClientConfig $config, ?Cancellation $cancellation): QuicheConnection
     {
         $state = new self($config);
 
         $scid = \random_bytes(self::LOCAL_CONN_ID_LEN);
         /** @var InternetAddress $remoteAddress No unix sockets for you */
         $remoteAddress = SocketAddress\fromResourcePeer($socket);
-        $remoteSockaddr = self::sockaddrFromInternetAdress($remoteAddress);
+        $remoteSockaddr = self::sockaddrFromInternetAddress($remoteAddress);
         /** @var InternetAddress $localAddress No unix sockets for you */
         $localAddress = SocketAddress\fromResourcePeer($socket);
-        $localSockaddr = self::sockaddrFromInternetAdress($localAddress);
+        $localSockaddr = self::sockaddrFromInternetAddress($localAddress);
 
         $state->startSuspension = EventLoop::getSuspension();
 
@@ -122,7 +123,7 @@ class QuicheClientState extends QuicheState
         return $quicConnection;
     }
 
-    private function cancelPing()
+    private function cancelPing(): void
     {
         if (isset($this->pingTimerId)) {
             EventLoop::cancel($this->pingTimerId);
@@ -130,14 +131,14 @@ class QuicheClientState extends QuicheState
         }
     }
 
-    public function closeConnection(QuicheConnection $connection, bool $applicationError, int $error, string $reason)
+    public function closeConnection(QuicheConnection $connection, bool $applicationError, int $error, string $reason): void
     {
         parent::closeConnection($connection, $applicationError, $error, $reason);
         $this->referenceConnectionInShutdown = $connection;
         $this->cancelPing();
     }
 
-    public function signalConnectionClosed(QuicheConnection $quicConnection)
+    public function signalConnectionClosed(QuicheConnection $quicConnection): void
     {
         if ($this->startSuspension) {
             $this->startSuspension->throw(new StreamException("Connection attempt rejected"));

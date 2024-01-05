@@ -36,14 +36,15 @@ class QuicheServerState extends QuicheState
     public $sockets = [];
 
     /** @var InternetAddress[] */
-    public $localAddresses = [];
+    public array $localAddresses = [];
     /** @var \Amp\Quic\Bindings\struct_sockaddr_in_ptr[]|\Amp\Quic\Bindings\struct_sockaddr_in6_ptr[] */
-    protected $localSockaddrs = [];
+    protected array $localSockaddrs = [];
 
     /** @var \SplPriorityQueue<\WeakReference<QuicheConnection>> The ping queue is ordered by $pingInsertionTime and guaranteeing that the entry with the pingInsertionTime of the top-most entry is always lower or equal to any $lastReceiveTime. */
     private \SplPriorityQueue $pingQueue;
     private string $pingTimerId;
 
+    /** @param resource[] $sockets */
     public function __construct(array $sockets, QuicServerConfig $config)
     {
         parent::__construct($config);
@@ -65,13 +66,14 @@ class QuicheServerState extends QuicheState
 
             /** @var InternetAddress $localAddress No unix sockets for you */
             $this->localAddresses[$socketId] = $localAddress = SocketAddress\fromResourcePeer($socket);
-            $this->localSockaddrs[$socketId] = self::sockaddrFromInternetAdress($localAddress);
+            $this->localSockaddrs[$socketId] = self::sockaddrFromInternetAddress($localAddress);
 
             $this->sockets[$localAddress->toString()] = $socket;
         }
     }
 
-    private function readCallback(string $watcher, $socket)
+    /** @param resource $socket */
+    private function readCallback(string $watcher, $socket): void
     {
         if (false === $buf = \stream_socket_recvfrom($socket, self::MAX_DATAGRAM_SIZE, 0, $sender)) {
             // TODO handle critical local stream error?
@@ -219,7 +221,7 @@ class QuicheServerState extends QuicheState
         } while (false !== $buf = \stream_socket_recvfrom($socket, self::MAX_DATAGRAM_SIZE, 0, $sender));
     }
 
-    private function sendPings()
+    private function sendPings(): void
     {
         $pingCutoff = (\microtime(1) - $this->pingPeriod) * 1e9;
         while (!$this->pingQueue->isEmpty()) {
@@ -282,7 +284,7 @@ class QuicheServerState extends QuicheState
         }
     }
 
-    public function closeAcceptor()
+    public function closeAcceptor(): void
     {
         if ($this->closed) {
             return;
@@ -300,14 +302,14 @@ class QuicheServerState extends QuicheState
         }
     }
 
-    public function closeConnection(QuicheConnection $connection, bool $applicationError, int $error, string $reason)
+    public function closeConnection(QuicheConnection $connection, bool $applicationError, int $error, string $reason): void
     {
         parent::closeConnection($connection, $applicationError, $error, $reason);
         // change it to a hard reference to avoid losing context during connection shutdown
         $this->connections[$connection->dcid_string] = $connection;
     }
 
-    public function signalConnectionClosed(QuicheConnection $quicConnection)
+    public function signalConnectionClosed(QuicheConnection $quicConnection): void
     {
         unset($this->connections[$quicConnection->dcid_string]);
         parent::signalConnectionClosed($quicConnection);

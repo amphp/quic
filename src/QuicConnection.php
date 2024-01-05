@@ -23,7 +23,7 @@ interface QuicConnection extends UdpSocket, ServerSocket
      * @param int|QuicError $error An integer error is an application error. To send a QUIC error, use the QuicError enum.
      * @param string $reason An arbitrary error reason.
      */
-    public function close(int|QuicError $error = QuicError::NO_ERROR, string $reason = ""): void;
+    public function close(int | QuicError $error = QuicError::NO_ERROR, string $reason = ""): void;
 
     /**
      * @return InternetAddress The address of the peer.
@@ -108,5 +108,5 @@ interface QuicConnection extends UdpSocket, ServerSocket
     /**
      * Provides an implementation specific way to expose statistics about the connection.
      */
-    public function stats();
+    public function stats() /* : implementation defined */;
 }

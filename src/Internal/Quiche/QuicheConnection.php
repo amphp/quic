@@ -10,6 +10,8 @@ use Amp\Quic\Bindings\Quiche;
 use Amp\Quic\Bindings\quiche_conn_ptr;
 use Amp\Quic\Bindings\quiche_path_stats;
 use Amp\Quic\Bindings\quiche_stats;
+use Amp\Quic\Bindings\struct_sockaddr_in6_ptr;
+use Amp\Quic\Bindings\struct_sockaddr_in_ptr;
 use Amp\Quic\QuicConnectionError;
 use Amp\Quic\QuicError;
 use Amp\Quic\Quiche\QuichePathStats;
@@ -63,13 +65,14 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     public int $lastReceiveTime;
     public int $pingInsertionTime = -1;
 
+    /** @param $socket resource */
     public function __construct(
         public QuicheState $state,
         public $socket,
         public InternetAddress $localAddress,
-        public $localSockaddr,
+        public struct_sockaddr_in_ptr | struct_sockaddr_in6_ptr $localSockaddr,
         public InternetAddress $address,
-        public $sockaddr,
+        public struct_sockaddr_in_ptr | struct_sockaddr_in6_ptr $sockaddr,
         public quiche_conn_ptr $connection,
         public ?string $dcid_string = null
     ) {
@@ -93,7 +96,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
     }
 
-    public function close(int|QuicError $error = QuicError::NO_ERROR, string $reason = ""): void
+    public function close(int | QuicError $error = QuicError::NO_ERROR, string $reason = ""): void
     {
         if (!$this->closed) {
             $applicationError = \is_int($error);

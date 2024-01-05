@@ -64,6 +64,7 @@ abstract class QuicheState
         $this->connectionRandom = \random_bytes(32);
     }
 
+    /** @param $socket resource */
     protected function installWriteHandler($socket)
     {
         if (!\is_resource($socket) || \get_resource_type($socket) !== 'stream') {
@@ -100,7 +101,7 @@ abstract class QuicheState
         });
     }
 
-    protected static function sockaddrFromInternetAdress(InternetAddress $localAddress)
+    protected static function sockaddrFromInternetAddress(InternetAddress $localAddress): struct_sockaddr_in_ptr | struct_sockaddr_in6_ptr
     {
         return self::toSockaddr($localAddress->getAddressBytes(), $localAddress->getPort(), $localAddress->getVersion());
     }
@@ -224,7 +225,7 @@ abstract class QuicheState
         return \FFI::memcmp($source->sin6_addr->getData(), $sin6->sin6_addr->getData(), 16) === 0 && $source->sin6_port === $sin6->sin6_port;
     }
 
-    protected function trySendConnection(QuicheConnection $quicConnection)
+    protected function trySendConnection(QuicheConnection $quicConnection): int
     {
         while (0 < $size = self::$quiche->quiche_conn_send($quicConnection->connection, self::$sendBuffer, self::SEND_BUFFER_SIZE, self::$sendInfo)) {
             $buf = self::$sendBuffer->toString($size);
@@ -234,7 +235,7 @@ abstract class QuicheState
                 if (!self::compareSockaddr($quicConnection->sockaddr, self::$sendInfo->to)) {
                     // convert back to address
                     $quicConnection->address = self::fromSockaddr(self::$sendInfo->to);
-                    $quicConnection->sockaddr = self::sockaddrFromInternetAdress($quicConnection->address);
+                    $quicConnection->sockaddr = self::sockaddrFromInternetAddress($quicConnection->address);
 
                     // we'll also assume that the source socket does not change if the IP remains the same (for perf reasons)
                     if (!self::compareSockaddr($quicConnection->localSockaddr, self::$sendInfo->from)) {
@@ -263,7 +264,7 @@ abstract class QuicheState
         return $size;
     }
 
-    private function checkWritable(QuicheConnection $quicConnection)
+    private function checkWritable(QuicheConnection $quicConnection): void
     {
         while (0 <= $stream = self::$quiche->quiche_conn_stream_writable_next($quicConnection->connection)) {
             $quicConnection->notifyWritable($stream);
@@ -308,7 +309,7 @@ abstract class QuicheState
         return true;
     }
 
-    public function signalConnectionClosed(QuicheConnection $quicConnection)
+    public function signalConnectionClosed(QuicheConnection $quicConnection): void
     {
         $quicConnection->notifyClosed();
     }
@@ -316,7 +317,7 @@ abstract class QuicheState
     /**
      * Always called if connection specific timeouts expire, new packets for the connection or a stream are received or the state of the connection has changed.
      */
-    public function checkSend(QuicheConnection $quicConnection)
+    public function checkSend(QuicheConnection $quicConnection): void
     {
         if ($quicConnection->queuedSend) {
             return;
@@ -327,7 +328,7 @@ abstract class QuicheState
     }
 
     // checkSend may be called often, basically after every single action, do a queued function to avoid checking too often
-    private function doCheckSend(QuicheConnection $quicConnection)
+    private function doCheckSend(QuicheConnection $quicConnection): void
     {
         $quicConnection->queuedSend = false;
 
@@ -377,7 +378,7 @@ abstract class QuicheState
         }
     }
 
-    public function closeConnection(QuicheConnection $connection, bool $applicationError, int $error, string $reason)
+    public function closeConnection(QuicheConnection $connection, bool $applicationError, int $error, string $reason): void
     {
         // We need to delay this, otherwise we might close the connection before pending writes are submitted
         EventLoop::queue(function () use ($connection, $applicationError, $error, $reason) {
@@ -394,14 +395,14 @@ abstract class QuicheState
         $this->free();
     }
 
-    public function reference()
+    public function reference(): void
     {
         if ($this->workingReferences++ === 0) {
             EventLoop::reference(\current($this->readIds));
         }
     }
 
-    public function unreference()
+    public function unreference(): void
     {
         if (--$this->workingReferences === 0) {
             EventLoop::unreference(\current($this->readIds));

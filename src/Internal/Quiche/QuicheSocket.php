@@ -66,7 +66,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         }
     }
 
-    private function ensureBufferSize($size)
+    private function ensureBufferSize(int $size): void
     {
         if ($size > self::$bufferSize) {
             self::$buffer = uint8_t_ptr::array($size);
@@ -393,7 +393,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         throw new StreamException("Failed to read on stream {$this->id}: error $received");
     }
 
-    public function notifyReadable()
+    public function notifyReadable(): void
     {
         if ($this->reader) {
             if ((null !== $buf = $this->doRead()) || $this->eofReached) {
@@ -404,7 +404,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         $this->readPending = true;
     }
 
-    public function notifyWritable()
+    public function notifyWritable(): void
     {
         $empty = $this->writes->isEmpty();
         while (!$empty) {
