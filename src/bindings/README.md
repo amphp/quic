@@ -51,3 +51,7 @@ for arch in aarch64 x86_64; do
     done
 done
 ```
+
+## Licensing
+
+The compiled libquiche-* artifacts are licensed under the BSD 2-clause: [LICENSE.libquiche](LICENSE.libquiche).

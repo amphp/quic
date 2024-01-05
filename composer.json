@@ -6,6 +6,7 @@
             "email": "bobwei9@hotmail.com"
         }
     ],
+    "license": "MIT",
     "minimum-stability": "dev",
     "require": {
         "amphp/socket": "^2",
