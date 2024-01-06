@@ -18,7 +18,7 @@ while ($connection = $server->acceptConnection()) {
 
     async(function () use ($connection) {
         $connection->openStream()->write("hey there!");
-        $connection->sendDatagram("maybe this arrives?");
+        $connection->send("maybe this arrives?");
         while ($stream = $connection->accept()) {
             async(function () use ($stream) {
                 try {

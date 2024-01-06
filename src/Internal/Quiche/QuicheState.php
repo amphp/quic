@@ -275,7 +275,7 @@ abstract class QuicheState
             $key = \key($quicConnection->datagramWrites);
             [$data, $suspension] = $quicConnection->datagramWrites[$key];
             try {
-                if (!$quicConnection->trySendDatagram($data)) {
+                if (!$quicConnection->trySend($data)) {
                     break;
                 }
                 $suspension->resume();

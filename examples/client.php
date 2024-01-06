@@ -22,7 +22,7 @@ async(function () use ($client) {
 });
 
 async(function () use ($client) {
-    while ($datagram = $client->receiveDatagram()) {
+    while ($datagram = $client->receive()) {
         print "Received datagram: $datagram\n";
     }
 });

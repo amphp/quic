@@ -339,19 +339,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
     }
 
-    public function receive(?Cancellation $cancellation = null, ?int $limit = null): ?array
-    {
-        $datagram = $this->receiveDatagram($cancellation, $limit);
-        return $datagram === null ? null : [$datagram, $this->address];
-    }
-
-    public function send(?InternetAddress $address, string $data): void
-    {
-        // We'll ignore $address, it's meaningless on a QUIC connection
-        $this->sendDatagram($data);
-    }
-
-    public function receiveDatagram(?Cancellation $cancellation = null, ?int $limit = null): ?string
+    public function receive(?Cancellation $cancellation = null): ?string
     {
         if ($this->closed) {
             return null;
@@ -375,11 +363,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
             if ($this->referenced) {
                 $this->state->reference();
             }
-            $data = $this->datagramSuspension->suspend();
-            if ($limit === null || $data === null) {
-                return $data;
-            }
-            return \substr($data, 0, $limit);
+            return $this->datagramSuspension->suspend();
         } finally {
             if ($this->referenced) {
                 $this->state->unreference();
@@ -388,9 +372,9 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
     }
 
-    public function sendDatagram(string $data, ?Cancellation $cancellation = null): void
+    public function send(string $data, ?Cancellation $cancellation = null): void
     {
-        if ($this->datagramWrites || !$this->trySendDatagram($data)) {
+        if ($this->datagramWrites || !$this->trySend($data)) {
             $suspension = EventLoop::getSuspension();
             $this->datagramWrites[] = [$data, $suspension];
 
@@ -414,7 +398,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
     }
 
-    public function trySendDatagram(string $data): bool
+    public function trySend(string $data): bool
     {
         if ($this->closed) {
             throw new ClosedException;

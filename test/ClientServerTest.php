@@ -149,8 +149,8 @@ class ClientServerTest extends AsyncTestCase
         $server = $this->bind("0.0.0.0:0", $ctx);
         EventLoop::defer(function () use ($server) {
             while ($socket = $server->acceptConnection()) {
-                while (null !== $data = $socket->receiveDatagram()) {
-                    $socket->sendDatagram($data);
+                while (null !== $data = $socket->receive()) {
+                    $socket->send($data);
                 }
                 $this->finishedDeferred->complete();
             }
@@ -162,12 +162,12 @@ class ClientServerTest extends AsyncTestCase
     {
         $server = $this->spawnUdpEchoServer();
         $client = connect("127.0.0.1:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
-        $client->sendDatagram("test");
-        $this->assertSame("test", $client->receiveDatagram());
-        $client->sendDatagram("test");
-        $client->sendDatagram("test");
-        $this->assertSame("test", $client->receiveDatagram());
-        $this->assertSame("test", $client->receiveDatagram());
+        $client->send("test");
+        $this->assertSame("test", $client->receive());
+        $client->send("test");
+        $client->send("test");
+        $this->assertSame("test", $client->receive());
+        $this->assertSame("test", $client->receive());
         $client->close();
 
         // Await closing
@@ -186,20 +186,20 @@ class ClientServerTest extends AsyncTestCase
 
         $e = null;
         try {
-            $client->sendDatagram(\str_repeat("1", $maxSize) . "X"); // one byte too much
+            $client->send(\str_repeat("1", $maxSize) . "X"); // one byte too much
         } catch (SocketException $e) {
         }
         $this->assertInstanceOf(SocketException::class, $e);
 
-        $this->assertTrue($client->trySendDatagram("first"));
-        $this->assertFalse($client->trySendDatagram("too much"));
+        $this->assertTrue($client->trySend("first"));
+        $this->assertFalse($client->trySend("too much"));
 
-        EventLoop::queue($client->sendDatagram(...), "third"); // now a buffered send
-        $client->sendDatagram("second"); // incl a queued one
+        EventLoop::queue($client->send(...), "third"); // now a buffered send
+        $client->send("second"); // incl a queued one
 
-        $this->assertSame("first", $client->receiveDatagram());
-        $this->assertSame("second", $client->receiveDatagram());
-        $this->assertSame("third", $client->receiveDatagram());
+        $this->assertSame("first", $client->receive());
+        $this->assertSame("second", $client->receive());
+        $this->assertSame("third", $client->receive());
         $client->close();
 
         // Await closing
@@ -373,8 +373,8 @@ class ClientServerTest extends AsyncTestCase
             $socket = $server->acceptConnection();
             $stream = $socket->accept();
             $this->assertSame($stream->read(), \str_repeat("a", 5000));
-            $this->assertSame("datagram", $socket->receiveDatagram());
-            $this->assertNull($socket->receiveDatagram());
+            $this->assertSame("datagram", $socket->receive());
+            $this->assertNull($socket->receive());
             $this->assertNull($stream->read());
 
             $closeReason = $socket->getCloseReason();
@@ -396,7 +396,7 @@ class ClientServerTest extends AsyncTestCase
 
         EventLoop::queue(function () use ($socket, &$exWrite) {
             $socket->write(\str_repeat("a", 5000));
-            $socket->getConnection()->sendDatagram("datagram");
+            $socket->getConnection()->send("datagram");
 
             try {
                 $socket->write(\str_repeat("a", 5000));
@@ -406,7 +406,7 @@ class ClientServerTest extends AsyncTestCase
         });
         EventLoop::queue(function () use ($client, &$exDatagram) {
             try {
-                $client->sendDatagram("queued");
+                $client->send("queued");
             } catch (ClosedException) {
                 $exDatagram = true;
             }
