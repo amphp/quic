@@ -3,9 +3,7 @@
 namespace Amp\Quic;
 
 use Amp\Cancellation;
-use Amp\Socket\PendingAcceptError;
 use Amp\Socket\ServerSocket;
-use Revolt\EventLoop;
 
 interface QuicServerSocket extends ServerSocket
 {
@@ -21,23 +19,30 @@ interface QuicServerSocket extends ServerSocket
      * Unlike {@see accept()}, this method accepts connections directly, on which streams can be opened
      * and datagrams sent.
      *
-     * @throws PendingAcceptError If another accept request is pending.
+     * @throws \Amp\Socket\PendingAcceptError If another accept request is pending.
      */
     public function acceptConnection(?Cancellation $cancellation = null): ?QuicConnection;
 
     /**
      * References the readability callback used for detecting new connection attempts in {@see accept()}.
      *
-     * @see EventLoop::reference()
+     * @see \Revolt\EventLoop::reference()
      */
     public function reference(): void;
 
     /**
      * Unreferences the readability callback used for detecting new connection attempts in {@see accept()}.
      *
-     * @see EventLoop::unreference()
+     * @see \Revolt\EventLoop::unreference()
      */
     public function unreference(): void;
+
+    /**
+     * Unlike {@see ServerSocket::getAddress()} returns all addresses QUIC listens on.
+     *
+     * @return \Amp\Socket\InternetAddress[]
+     */
+    public function getAddresses(): array;
 
     /**
      * Gets the underlying resource.

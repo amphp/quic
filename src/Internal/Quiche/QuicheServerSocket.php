@@ -199,6 +199,11 @@ final class QuicheServerSocket implements QuicServerSocket
         return \current($this->state->localAddresses);
     }
 
+    public function getAddresses(): array
+    {
+        return $this->state->localAddresses;
+    }
+
     public function getBindContext(): BindContext
     {
         return $this->state->config->getBindContext();
