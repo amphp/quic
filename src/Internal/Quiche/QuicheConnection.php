@@ -3,6 +3,7 @@
 namespace Amp\Quic\Internal\Quiche;
 
 use Amp\ByteStream\ClosedException;
+use Amp\ByteStream\StreamException;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\DeferredFuture;
@@ -24,6 +25,7 @@ use Amp\Socket\PendingAcceptError;
 use Amp\Socket\PendingReceiveError;
 use Amp\Socket\SocketException;
 use Amp\Socket\TlsInfo;
+use Amp\Socket\TlsState;
 use Closure;
 use Kelunik\Certificate\Certificate;
 use Revolt\EventLoop;
@@ -181,6 +183,11 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     }
 
     public function getAddress(): InternetAddress
+    {
+        return $this->localAddress;
+    }
+
+    public function getLocalAddress(): InternetAddress
     {
         return $this->localAddress;
     }
@@ -461,6 +468,30 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         $cryptoInfo["cipher_bits"] = 128; // unknown, but we need an int
 
         return $this->tlsInfo = TlsInfo::fromMetaData($cryptoInfo, $tlsInfo);
+    }
+
+    public function setupTls(?Cancellation $cancellation = null): void
+    {
+        // No-op, always setup
+    }
+
+    public function shutdownTls(?Cancellation $cancellation = null): void
+    {
+        if ($this->closed) {
+            throw new ClosedException("Can't shutdown TLS, because the socket has already been closed");
+        }
+
+        throw new StreamException("Cannot disable TLS on a QUIC connection");
+    }
+
+    public function isTlsConfigurationAvailable(): bool
+    {
+        return true;
+    }
+
+    public function getTlsState(): TlsState
+    {
+        return TlsState::Enabled;
     }
 
     public function __destruct()

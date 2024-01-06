@@ -6,9 +6,12 @@ use Amp\ByteStream\ClosedException;
 use Amp\Cancellation;
 use Amp\Socket\InternetAddress;
 use Amp\Socket\ServerSocket;
+use Amp\Socket\SocketException;
 use Amp\Socket\TlsInfo;
+use Amp\Socket\TlsState;
 use Amp\Socket\UdpSocket;
 
+// TODO: Find a common interface for everything Socket-like in amp/socket, without the Readable&WritableStream interfaces.
 /**
  * A QUIC connection can create streams as well as send datagrams over it.
  * It can be used both on the server side via {@see QuicServerSocket::acceptConnection()} and the client side via {@see QuicDriver::connect()}.
@@ -24,6 +27,11 @@ interface QuicConnection extends UdpSocket, ServerSocket
      * @param string $reason An arbitrary error reason.
      */
     public function close(int | QuicError $error = QuicError::NO_ERROR, string $reason = ""): void;
+
+    /**
+     * @return InternetAddress The local address.
+     */
+    public function getLocalAddress(): InternetAddress;
 
     /**
      * @return InternetAddress The address of the peer.
@@ -45,6 +53,8 @@ interface QuicConnection extends UdpSocket, ServerSocket
     public function openStream(): QuicSocket;
 
     /**
+     * Implementing ServerSocket interface, forwards to {@see getLocalAddress}.
+     *
      * @return InternetAddress The local address.
      */
     public function getAddress(): InternetAddress;
@@ -86,6 +96,26 @@ interface QuicConnection extends UdpSocket, ServerSocket
      * @return int The maximum size a single datagram may have.
      */
     public function maxDatagramSize(): int;
+
+    /**
+     * No-op, QUIC connections always have TLS active.
+     */
+    public function setupTls(?Cancellation $cancellation = null): void;
+
+    /**
+     * @throws SocketException Cannot be shutdown.
+     */
+    public function shutdownTls(?Cancellation $cancellation = null): void;
+
+    /**
+     * @return true Always true.
+     */
+    public function isTlsConfigurationAvailable(): bool;
+
+    /**
+     * @return TlsState Effectively always TlsState::Enabled
+     */
+    public function getTlsState(): TlsState;
 
     /**
      * @return TlsInfo The TLS state of the connection.
