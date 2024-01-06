@@ -368,7 +368,7 @@ class ClientServerTest extends AsyncTestCase
             ->withApplicationLayerProtocols(["test"]);
         $cfg = (new QuicServerConfig($tls))
             ->withMaxRemoteBidirectionalData(5000);
-        $server = $this->bind("[::]:0", $cfg);
+        $server = $this->bind("0.0.0.0:0", $cfg);
         EventLoop::defer(function () use ($server) {
             $socket = $server->acceptConnection();
             $stream = $socket->accept();
