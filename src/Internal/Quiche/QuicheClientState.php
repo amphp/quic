@@ -96,11 +96,14 @@ class QuicheClientState extends QuicheState
         $quicConnection = new QuicheConnection($state, $socket, $localAddress, $localSockaddr, $remoteAddress, $remoteSockaddr, $conn);
         $state->connection = \WeakReference::create($quicConnection);
 
-        $timeout = EventLoop::delay($config->getHandshakeTimeout(), fn () => $state->startSuspension->throw(new ConnectException("Connection timed out", previous: new TimeoutException)));
-
         if (-1 > $err = $state->trySendConnection($quicConnection)) {
             throw new ConnectException("Count not establish connection: $err");
         }
+
+        $timeout = EventLoop::delay($config->getHandshakeTimeout(), function () use ($state) {
+            $state->startSuspension->throw(new ConnectException("Connection timed out", previous: new TimeoutException));
+            $state->startSuspension = null;
+        });
 
         try {
             $state->startSuspension->suspend();

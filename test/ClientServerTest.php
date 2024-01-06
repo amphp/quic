@@ -542,10 +542,32 @@ class ClientServerTest extends AsyncTestCase
     public function testConnectionQueuing(): void
     {
         $server = $this->spawnConnectionSpammedServer();
+
+        $batchSend = [];
+        $batchId = EventLoop::repeat(0.05, function () use (&$batchSend) {
+            foreach ($batchSend as [$target, $datagram]) {
+                \stream_socket_sendto($target, $datagram);
+            }
+            $batchSend = [];
+        });
+
         $successReads = 0;
         for ($i = 0; $i < 5; ++$i) {
-            $futures[] = \Amp\async(function () use (&$successReads) {
-                $client = connect("[::]:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+            $futures[] = \Amp\async(function () use (&$successReads, &$batchSend) {
+                // proxy through another udp server with delay to remove test flakiness
+                $intermediary = bindUdpSocket("0.0.0.0:0");
+                $target = \stream_socket_client("udp://[::1]:{$this->port}", $errno, $errstr, null, \STREAM_CLIENT_CONNECT | \STREAM_CLIENT_ASYNC_CONNECT);
+                EventLoop::defer(function () use ($intermediary, &$target, &$id, &$address, &$batchSend) {
+                    while ([$address, $datagram] = $intermediary->receive()) {
+                        $batchSend[] = [$target, $datagram];
+                    }
+                    EventLoop::cancel($id);
+                });
+                $id = EventLoop::onReadable($target, function ($watcher, $client) use ($intermediary, &$address) {
+                    $intermediary->send($address, \stream_socket_recvfrom($client, 65507));
+                });
+
+                $client = connect($intermediary->getAddress(), (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
 
                 if ($stream = $client->accept()) {
                     $stream->read();
@@ -554,14 +576,17 @@ class ClientServerTest extends AsyncTestCase
 
                     $client->close();
                 }
+
+                $intermediary->close();
             });
         }
         \Amp\Future\await($futures);
 
-        // One is rejected thanks to limit
-        $this->assertSame(4, $successReads);
+        // Two are rejected thanks to backlog limit - first is accepted, then two queued
+        $this->assertSame(3, $successReads);
 
         $server->close();
+        EventLoop::cancel($batchId);
     }
 
     public function assertAtMostUnreferenced(int $allowed): void
