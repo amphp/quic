@@ -16,15 +16,18 @@ use Amp\ByteStream\StreamException;
 use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\PHPUnit\AsyncTestCase;
+use Amp\Quic\Internal\Quiche\QuicheServerSocket;
 use Amp\Quic\Quiche\QuicheStats;
 use Amp\Socket\BindContext;
 use Amp\Socket\Certificate;
 use Amp\Socket\ClientTlsContext;
+use Amp\Socket\InternetAddress;
 use Amp\Socket\ServerTlsContext;
 use Amp\Socket\SocketException;
 use Revolt\EventLoop;
 use function Amp\async;
 use function Amp\Socket\bindUdpSocket;
+use function Amp\Socket\SocketAddress\fromResourceLocal;
 
 //define("AMP_QUIC_HEAVY_DEBUGGING", true);
 
@@ -34,6 +37,42 @@ class ClientServerTest extends AsyncTestCase
 {
     private bool $finished;
     private DeferredFuture $finishedDeferred;
+
+    private int $port = 0;
+
+    /** binds to always the same port */
+    protected function bind(string | array $addresses, QuicServerConfig|ServerTlsContext|BindContext $context): QuicheServerSocket
+    {
+        $fn = function ($address) {
+            $colon = \strrpos($address, ":");
+            $port = \substr($address, $colon + 1);
+            $host = \substr($address, 0, $colon);
+            if ($port != 0) {
+                return $address;
+            }
+
+            if (!$this->port) {
+
+                $srv = \stream_socket_server("udp://$address:0", $errno, $errstr, STREAM_SERVER_BIND);
+                /** @var InternetAddress $bound */
+                $bound = fromResourceLocal($srv);
+
+                $this->port = $bound->getPort();
+            }
+
+            return "$host:{$this->port}";
+        };
+
+        if (\is_string($addresses)) {
+            $addresses = $fn($addresses);
+        } else {
+            foreach ($addresses as &$address) {
+                $address = $fn($address);
+            }
+        }
+
+        return bind($addresses, $context);
+    }
 
     protected function spawnEchoServer($alterConfig = null): QuicServerSocket
     {
@@ -46,7 +85,7 @@ class ClientServerTest extends AsyncTestCase
         if ($alterConfig) {
             $ctx = $alterConfig($ctx);
         }
-        $server = bind("0.0.0.0:7463", $ctx);
+        $server = $this->bind("0.0.0.0:0", $ctx);
         EventLoop::defer(function () use ($server) {
             while ($socket = $server->accept()) {
                 EventLoop::queue(function () use ($socket) {
@@ -68,7 +107,7 @@ class ClientServerTest extends AsyncTestCase
         $tls = (new ClientTlsContext)
             ->withApplicationLayerProtocols(["test"])
             ->withCaFile(__DIR__ . "/ca.crt");
-        $client = connect("127.0.0.1:7463", (new QuicClientConfig($tls))->withHostname("localhost"));
+        $client = connect("127.0.0.1:{$this->port}", (new QuicClientConfig($tls))->withHostname("localhost"));
         $socket = $client->openStream();
         $socket->write("test");
         $this->assertSame("test", $socket->read());
@@ -107,7 +146,7 @@ class ClientServerTest extends AsyncTestCase
             ->withDefaultCertificate(new Certificate(__DIR__ . "/cert.pem", __DIR__ . "/key.pem"))
             ->withApplicationLayerProtocols(["test"]);
         $ctx = (new BindContext)->withTlsContext($tls);
-        $server = bind("0.0.0.0:7463", $ctx);
+        $server = $this->bind("0.0.0.0:0", $ctx);
         EventLoop::defer(function () use ($server) {
             while ($socket = $server->acceptConnection()) {
                 while (null !== $data = $socket->receiveDatagram()) {
@@ -122,7 +161,7 @@ class ClientServerTest extends AsyncTestCase
     public function testDatagramEcho(): void
     {
         $server = $this->spawnUdpEchoServer();
-        $client = connect("127.0.0.1:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+        $client = connect("127.0.0.1:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
         $client->sendDatagram("test");
         $this->assertSame("test", $client->receiveDatagram());
         $client->sendDatagram("test");
@@ -142,7 +181,7 @@ class ClientServerTest extends AsyncTestCase
         $server = $this->spawnUdpEchoServer();
         $tls = (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification();
         $cfg = (new QuicClientConfig($tls))->withDatagramSendQueueSize(1);
-        $client = connect("127.0.0.1:7463", $cfg);
+        $client = connect("127.0.0.1:{$this->port}", $cfg);
         $maxSize = $client->maxDatagramSize();
 
         $e = null;
@@ -177,7 +216,7 @@ class ClientServerTest extends AsyncTestCase
             ->withApplicationLayerProtocols(["test"]);
         $ctx = (new QuicServerConfig($tls))
             ->withStatelessResetToken("0123456789abcdef");
-        $server = bind("[::]:7463", $ctx);
+        $server = $this->bind("[::]:0", $ctx);
         EventLoop::defer(function () use ($server) {
             $socket = $server->acceptConnection();
             // extra defer to drop $server reference
@@ -207,7 +246,7 @@ class ClientServerTest extends AsyncTestCase
     public function testServerInitiatedStreams(): void
     {
         $this->spawnMultiStreamServer();
-        $client = connect("[::]:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+        $client = connect("[::]:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
         $streamUni = $client->accept();
         if ($streamUni->id == 3) {
             $streamBidi = $client->accept();
@@ -256,7 +295,7 @@ class ClientServerTest extends AsyncTestCase
 
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
             ->withMaxLocalBidirectionalData(5000);
-        $client = connect("127.0.0.1:7463", $cfg);
+        $client = connect("127.0.0.1:{$this->port}", $cfg);
         $socket = $client->openStream();
         $str = \implode(\range(1, 1900));
         EventLoop::queue(function () use ($socket, $str) {
@@ -286,7 +325,7 @@ class ClientServerTest extends AsyncTestCase
         $tls = (new ServerTlsContext)
             ->withDefaultCertificate(new Certificate(__DIR__ . "/cert.pem", __DIR__ . "/key.pem"))
             ->withApplicationLayerProtocols(["test"]);
-        $server = bind("[::]:7463", $tls);
+        $server = $this->bind("[::]:0", $tls);
         EventLoop::defer(function () use ($server) {
             $socket = $server->acceptConnection();
             $stream = $socket->accept();
@@ -297,7 +336,7 @@ class ClientServerTest extends AsyncTestCase
     public function testReadingWithStreamReset(): void
     {
         $this->spawnStreamResetServer();
-        $client = connect("[::]:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+        $client = connect("[::]:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
 
         $stream = $client->openStream();
         $stream->write("start");
@@ -329,7 +368,7 @@ class ClientServerTest extends AsyncTestCase
             ->withApplicationLayerProtocols(["test"]);
         $cfg = (new QuicServerConfig($tls))
             ->withMaxRemoteBidirectionalData(5000);
-        $server = bind("[::]:7463", $cfg);
+        $server = $this->bind("[::]:0", $cfg);
         EventLoop::defer(function () use ($server) {
             $socket = $server->acceptConnection();
             $stream = $socket->accept();
@@ -352,7 +391,7 @@ class ClientServerTest extends AsyncTestCase
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
             ->withMaxLocalBidirectionalData(5000)
             ->withDatagramSendQueueSize(1);
-        $client = connect("127.0.0.1:7463", $cfg);
+        $client = connect("127.0.0.1:{$this->port}", $cfg);
         $socket = $client->openStream();
 
         EventLoop::queue(function () use ($socket, &$exWrite) {
@@ -397,7 +436,7 @@ class ClientServerTest extends AsyncTestCase
             ->withApplicationLayerProtocols(["test"]);
         $cfg = (new QuicServerConfig($tls))
             ->withMaxRemoteBidirectionalData(5000);
-        $server = bind(["0.0.0.0:7463", "[::]:7463"], $cfg);
+        $server = $this->bind(["0.0.0.0:0", "[::]:0"], $cfg);
         EventLoop::defer(function () use ($server) {
             $socket = $server->acceptConnection();
             $stream = $socket->accept();
@@ -418,7 +457,7 @@ class ClientServerTest extends AsyncTestCase
 
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withCaPath(__DIR__)))
             ->withMaxLocalBidirectionalData(5000);
-        $client = connect("localhost:7463", $cfg);
+        $client = connect("localhost:{$this->port}", $cfg);
         $socket = $client->openStream();
 
         $socket->write(\str_repeat("a", 5000));
@@ -440,7 +479,7 @@ class ClientServerTest extends AsyncTestCase
     {
         $server = $this->spawnEchoServer();
 
-        $client = connect("127.0.0.1:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+        $client = connect("127.0.0.1:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
         $first = $client->openStream();
         $first->setPriority(255);
         $first->write("first");
@@ -468,7 +507,7 @@ class ClientServerTest extends AsyncTestCase
     {
         $server = $this->spawnEchoServer();
 
-        $client = connect("127.0.0.1:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+        $client = connect("127.0.0.1:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
         $socket = $client->openStream();
 
         $tlsInfo = $socket->getTlsInfo();
@@ -490,7 +529,7 @@ class ClientServerTest extends AsyncTestCase
         $cfg = (new BindContext)
             ->withTlsContext($tls)
             ->withBacklog(2);
-        $server = bind("[::]:7463", $cfg);
+        $server = $this->bind("[::]:0", $cfg);
         EventLoop::defer(function () use ($server) {
             while ($socket = $server->acceptConnection()) {
                 $socket->openStream()->write("success");
@@ -506,7 +545,7 @@ class ClientServerTest extends AsyncTestCase
         $successReads = 0;
         for ($i = 0; $i < 5; ++$i) {
             $futures[] = \Amp\async(function () use (&$successReads) {
-                $client = connect("[::]:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+                $client = connect("[::]:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
 
                 if ($stream = $client->accept()) {
                     $stream->read();
@@ -546,7 +585,7 @@ class ClientServerTest extends AsyncTestCase
         $server->unreference();
         $this->assertAtMostUnreferenced(0);
 
-        $client = connect("127.0.0.1:7463", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+        $client = connect("127.0.0.1:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
         $socket = $client->openStream();
 
         $this->assertAtMostUnreferenced(0);
@@ -584,7 +623,7 @@ class ClientServerTest extends AsyncTestCase
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
             ->withIdleTimeout(0.2)
             ->withKeylogFile($keylog);
-        $client = connect("127.0.0.1:7463", $cfg);
+        $client = connect("127.0.0.1:{$this->port}", $cfg);
         $socket = $client->openStream();
 
         $time = \microtime(true);
@@ -623,7 +662,7 @@ class ClientServerTest extends AsyncTestCase
         $server = $this->spawnEchoServer(fn (QuicServerConfig $cfg) => $cfg->withPingPeriod(0.1));
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
             ->withIdleTimeout(0.2);
-        $client = connect("127.0.0.1:7463", $cfg);
+        $client = connect("127.0.0.1:{$this->port}", $cfg);
         $socket = $client->openStream();
 
         $socket->write("hey");
@@ -649,7 +688,7 @@ class ClientServerTest extends AsyncTestCase
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
             ->withIdleTimeout(0.2)
             ->withPingPeriod(0.1);
-        $client = connect("127.0.0.1:7463", $cfg);
+        $client = connect("127.0.0.1:{$this->port}", $cfg);
         $socket = $client->openStream();
 
         $time = \microtime(true);
@@ -680,7 +719,7 @@ class ClientServerTest extends AsyncTestCase
         $tls = (new ServerTlsContext)
             ->withDefaultCertificate(new Certificate(__DIR__ . "/cert.pem", __DIR__ . "/key.pem"))
             ->withApplicationLayerProtocols(["test"]);
-        $server = bind(["0.0.0.0:7463", "[::]:7463"], $tls);
+        $server = $this->bind(["0.0.0.0:0", "[::]:0"], $tls);
 
         $future = async($server->acceptConnection(...));
 
@@ -701,8 +740,8 @@ class ClientServerTest extends AsyncTestCase
         [$server, $future] = $srv;
 
         // proxy through another udp server to test migration
-        $intermediary = bindUdpSocket("0.0.0.0:7464");
-        $target = \stream_socket_client("udp://[::1]:7463", $errno, $errstr, null, \STREAM_CLIENT_CONNECT | \STREAM_CLIENT_ASYNC_CONNECT);
+        $intermediary = bindUdpSocket("0.0.0.0:0");
+        $target = \stream_socket_client("udp://[::1]:{$this->port}", $errno, $errstr, null, \STREAM_CLIENT_CONNECT | \STREAM_CLIENT_ASYNC_CONNECT);
         EventLoop::defer(function () use ($intermediary, &$target, &$id, &$address, &$forwarded) {
             while ([$address, $datagram] = $intermediary->receive()) {
                 \stream_socket_sendto($target, $datagram);
@@ -715,7 +754,7 @@ class ClientServerTest extends AsyncTestCase
             $intermediary->send($address, \stream_socket_recvfrom($client, 65507));
         });
 
-        $client = connect("127.0.0.1:7464", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
+        $client = connect($intermediary->getAddress(), (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
         $socket = $client->openStream();
 
         $forwarded = EventLoop::getSuspension();
@@ -725,7 +764,7 @@ class ClientServerTest extends AsyncTestCase
         $forwarded->suspend();
 
         // replace client socket instance - migrate from ::1 to 127.0.0.1
-        $target = \stream_socket_client("udp://127.0.0.1:7463", $errno, $errstr, null, \STREAM_CLIENT_CONNECT | \STREAM_CLIENT_ASYNC_CONNECT);
+        $target = \stream_socket_client("udp://127.0.0.1:{$this->port}", $errno, $errstr, null, \STREAM_CLIENT_CONNECT | \STREAM_CLIENT_ASYNC_CONNECT);
         EventLoop::cancel($id);
         $id = EventLoop::onReadable($target, function ($watcher, $client) use ($intermediary, &$address) {
             $intermediary->send($address, \stream_socket_recvfrom($client, 65507));
@@ -740,8 +779,8 @@ class ClientServerTest extends AsyncTestCase
         /** @var QuicheStats $stats */
         $stats = $serverSocket->stats();
         $this->assertCount(2, $stats->paths);
-        $this->assertSame("[::]:7463", $stats->paths[0]->localAddr->toString());
-        $this->assertSame("0.0.0.0:7463", $stats->paths[1]->localAddr->toString());
+        $this->assertSame("[::]:{$this->port}", $stats->paths[0]->localAddr->toString());
+        $this->assertSame("0.0.0.0:{$this->port}", $stats->paths[1]->localAddr->toString());
         $this->assertNotSame($stats->paths[0]->peerAddr->toString(), $stats->paths[1]->localAddr->toString());
 
         $client->close();
@@ -759,7 +798,7 @@ class ClientServerTest extends AsyncTestCase
         $this->spawnEchoServer();
         // bytes 2 to 5 are 0xffffffff, i.e. an unknown version id, everything else is just an arbitrary initial handshake without padding
         $maxVersion = "\xcf\xff\xff\xff\xff\x10\xdb\xf9\x5f\x57\x24\x1c\xe1\x59\xc6\xfa\x94\x12\x41\x08\xb3\x1f\x10\x58\xbb\x65\x15\xd6\x7c\xc4\xe9\x28\xcd\xd8\xa6\xa0\x6f\x97\x18\x00\x41\x08\x1e\xbe\x17\x35\xf3\xd8\x2c\x31\xb1\x3a\x91\x4e\xfe\xee\x5c\x0d\x6e\xa0\x5e\x91\x96\xed\x1f\x5f\xb4\xa7\x6f\xe8\x15\x78\x60\xaf\xde\x04\xcc\x4e\xa6\x0d\x8c\xf1\xe6\xac\x45\x07\xba\x1c\xe0\x05\x24\xfa\x9b\x3e\xc8\xe1\xee\x6b\x5b\x9e\x1c\x38\x93\x23\xe5\xb5\x4a\xf2\xaa\x0d\x2b\xec\x6e\x41\x42\x81\x80\x53\x86\x93\x7c\xc1\xb2\x02\x26\x55\x3b\xbc\xa3\x88\xd8\xdb\xc9\x5e\x61\x45\xeb\xff\x55\x8d\xcc\x26\x85\xca\x70\x5b\x9e\x03\xb1\xaf\xcc\x6f\x51\xe0\x92\x89\x9a\x3a\xd4\x0d\x9a\xab\xd1\xb3\x33\x76\x86\x87\xf9\xa8\x21\x10\x55\x64\x77\xad\xd9\xad\xfe\xd8\x14\x05\xec\xee\xe2\x22\x19\x47\x77\xba\x2e\xfb\xa7\xe5\x76\x40\x99\x4e\x32\x17\xe5\x3a\xca\x55\xab\x9e\x48\x4d\xde\xcd\x00\x38\xce\x98\x38\x18\x05\xf5\xc2\x3e\x9a\x1b\xce\x38\x51\xb8\x5c\xb4\x4f\x2e\xcc\x7e\xd8\x94\x53\x1c\x6a\x76\xe0\x67\x88\x0f\xcf\x78\x01\x95\xf9\xf9\xb5\x09\xa5\xaf\x77\x53\x55\xc2\x4a\xb8\xd1\xae\xee\x4f\x74\xd1\x01\xa4\xb6\x1f\x41\xf5\xa9\x41\x0b\xd9\xd7\xac\x72\x56\x7a\x26\x2e\xf7\xee\xf3\x67\x85\xcd\x77\xa5\xdd\xb1\x34\x56\x95\xa8\xeb\x16\x92\x4f\x2f\x2e\x00\xb8\xc3\x6d\x76";
-        $client = \Amp\Socket\connect("udp://127.0.0.1:7463");
+        $client = \Amp\Socket\connect("udp://127.0.0.1:{$this->port}");
         $client->write($maxVersion);
         $reply = \substr($client->read(), 1, 38);
         $this->assertSame("\x00\x00\x00\x00\x10\x58\xbb\x65\x15\xd6\x7c\xc4\xe9\x28\xcd\xd8\xa6\xa0\x6f\x97\x18\x10\xdb\xf9\x5f\x57\x24\x1c\xe1\x59\xc6\xfa\x94\x12\x41\x08\xb3\x1f", $reply);
