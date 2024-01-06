@@ -23,6 +23,7 @@ interface UdpClient
      * Sends a datagram over the connection.
      *
      * @param string $data The data to send. It MUST be smaller than {@see maxDatagramSize()}.
+     * @param Cancellation|null $cancellation Abort waiting to send.
      * @throws ClosedException If the connection was closed.
      */
     public function send(string $data, ?Cancellation $cancellation = null): void;
@@ -32,7 +33,8 @@ interface UdpClient
      *
      * @return string|null Returns {@code null} if the socket is closed.
      *
-     * @throws PendingReceiveError If a reception request is already pending.     */
+     * @throws PendingReceiveError If a reception request is already pending.
+     */
     public function receive(?Cancellation $cancellation = null): ?string;
 
     /**
