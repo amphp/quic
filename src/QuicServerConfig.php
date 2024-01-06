@@ -6,9 +6,8 @@ use Amp\Socket\BindContext;
 use Amp\Socket\Certificate;
 use Amp\Socket\ServerTlsContext;
 
-class QuicServerConfig extends QuicConfig
+final class QuicServerConfig extends QuicConfig
 {
-    private array $context = [];
     private ServerTlsContext $tlsContext;
     private BindContext $bindContext;
 
@@ -16,15 +15,16 @@ class QuicServerConfig extends QuicConfig
 
     public function __construct(ServerTlsContext|BindContext $context)
     {
-        if ($context instanceof BindContext) {
-            $this->bindContext = $context;
-            $this->context = $context->toStreamContextArray();
-            $tls = $context->getTlsContext();
-            if ($tls === null) {
-                throw new \Error('Constructor received a null TLS context. QUIC requires TLS.');
-            }
-        } else {
-            $tls = $context;
+        parent::__construct();
+
+        $this->bindContext = $context instanceof ServerTlsContext
+            ? (new BindContext())->withTlsContext($context)
+            : $context;
+
+        $tls = $this->bindContext->getTlsContext();
+
+        if ($tls === null) {
+            throw new \Error('Constructor received a null TLS context. QUIC requires TLS.');
         }
 
         if ($tls->getCertificates()) {
@@ -54,7 +54,7 @@ class QuicServerConfig extends QuicConfig
 
     public function getBindContext(): BindContext
     {
-        return $this->bindContext ??= (new BindContext)->withTlsContext($this->tlsContext);
+        return $this->bindContext;
     }
 
     public function hasPeerVerification(): bool
@@ -62,9 +62,9 @@ class QuicServerConfig extends QuicConfig
         return $this->tlsContext->hasPeerVerification();
     }
 
-    public function toStreamContextArray()
+    public function toStreamContextArray(): array
     {
-        return $this->context;
+        return $this->bindContext->withoutTlsContext()->toStreamContextArray();
     }
 
     public function getCaPath(): ?string
@@ -114,9 +114,6 @@ class QuicServerConfig extends QuicConfig
 
     public function getAcceptQueueSize(): int
     {
-        if (isset($this->bindContext)) {
-            return $this->bindContext->getBacklog();
-        }
-        return 128; // default
+        return $this->bindContext->getBacklog();
     }
 }
