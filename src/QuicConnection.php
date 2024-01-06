@@ -84,7 +84,8 @@ interface QuicConnection extends UdpSocket, ServerSocket
     public function trySendDatagram(string $data): bool;
 
     /**
-     * Sends a datagram over the connection with backpressure. The backpressure is determined by {@see QuicConfig::withDatagramSendQueueSize()}.
+     * Sends a datagram over the connection with backpressure. The backpressure is determined by
+     * {@see QuicConfig::withDatagramSendQueueSize()}.
      *
      * @param string $data The data to send. It MUST be smaller than {@see maxDatagramSize()}.
      * @param Cancellation|null $cancellation Abort waiting to send.

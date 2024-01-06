@@ -6,35 +6,44 @@ use Amp\Socket\Certificate;
 use Amp\Socket\ClientTlsContext;
 use Amp\Socket\ConnectContext;
 
-class QuicClientConfig extends QuicConfig
+final class QuicClientConfig extends QuicConfig
 {
     private ClientTlsContext $tlsContext;
     private ConnectContext $connectContext;
-    private array $context = [];
 
     private ?string $hostname = null;
 
     public function __construct(ConnectContext|ClientTlsContext|array $protocolsOrTlsContext)
     {
-        if (\is_array($protocolsOrTlsContext)) {
-            $tls = (new ClientTlsContext)->withApplicationLayerProtocols($protocolsOrTlsContext);
-        } elseif ($protocolsOrTlsContext instanceof ConnectContext) {
-            $tls = $protocolsOrTlsContext->getTlsContext() ?? new ClientTlsContext;
-            $this->context = $protocolsOrTlsContext->withoutTlsContext()->toStreamContextArray();
-            $this->connectContext = $protocolsOrTlsContext;
-            $this->handshakeTimeout = $protocolsOrTlsContext->getConnectTimeout();
-        } else {
-            $tls = $protocolsOrTlsContext;
-        }
+        parent::__construct();
 
-        if (!$tls->getApplicationLayerProtocols()) {
+        $this->connectContext = $this->createConnectContext($protocolsOrTlsContext);
+        $this->handshakeTimeout = $this->connectContext->getConnectTimeout();
+
+        $tls = $this->connectContext->getTlsContext();
+        if (!$tls?->getApplicationLayerProtocols()) {
             throw new \Error('QUIC requires at least one application layer protocol to be specified.');
         }
 
         $this->tlsContext = $tls;
     }
 
-    public function withHostname(string $hostname): static
+    private function createConnectContext(ConnectContext|ClientTlsContext|array $protocolsOrTlsContext): ConnectContext
+    {
+        if (\is_array($protocolsOrTlsContext)) {
+            $tls = (new ClientTlsContext())->withApplicationLayerProtocols($protocolsOrTlsContext);
+            return (new ConnectContext())->withTlsContext($tls);
+        }
+
+        if ($protocolsOrTlsContext instanceof ClientTlsContext) {
+            $tls = $protocolsOrTlsContext;
+            return (new ConnectContext())->withTlsContext($tls);
+        }
+
+        return $protocolsOrTlsContext;
+    }
+
+    public function withHostname(string $hostname): self
     {
         $clone = clone $this;
         $clone->hostname = $hostname;
@@ -49,7 +58,7 @@ class QuicClientConfig extends QuicConfig
 
     public function getConnectContext(): ConnectContext
     {
-        return $this->connectContext ?? new ConnectContext;
+        return $this->connectContext;
     }
 
     public function getTlsContext(): ClientTlsContext
@@ -84,6 +93,6 @@ class QuicClientConfig extends QuicConfig
 
     public function toStreamContextArray(): array
     {
-        return $this->context;
+        return $this->connectContext->withoutTlsContext()->toStreamContextArray();
     }
 }
