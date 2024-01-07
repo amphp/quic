@@ -285,6 +285,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
 
             if (!$writing) {
                 $socket->reader?->resume();
+                $socket->reader = null;
                 if ($socket->onClose?->isComplete() === false) {
                     $socket->onClose->complete();
                 }
