@@ -66,6 +66,14 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         }
     }
 
+    public function getId(): int
+    {
+        if (!isset($this->id)) {
+            $this->connection->allocStreamId($this);
+        }
+        return $this->id;
+    }
+
     private function ensureBufferSize(int $size): void
     {
         if ($size > self::$bufferSize) {

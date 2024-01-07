@@ -248,14 +248,14 @@ class ClientServerTest extends AsyncTestCase
         $this->spawnMultiStreamServer();
         $client = connect("[::]:{$this->port}", (new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification());
         $streamUni = $client->accept();
-        if ($streamUni->id == 3) {
+        if ($streamUni->getId() == 3) {
             $streamBidi = $client->accept();
         } else {
             $streamBidi = $streamUni;
             $streamUni = $client->accept();
         }
-        $this->assertSame(3, $streamUni->id);
-        $this->assertSame(1, $streamBidi->id);
+        $this->assertSame(3, $streamUni->getId());
+        $this->assertSame(1, $streamBidi->getId());
 
         $this->assertSame("uni", $streamUni->read());
         do {

@@ -11,6 +11,9 @@ use Amp\Socket\TlsInfo;
  */
 interface QuicSocket extends Socket
 {
+    /** @return int The id of the stream.  */
+    public function getId(): int;
+
     /**
      * Half-closes the reading end of the stream, the counterpart to WritableStream::end().
      * @param int $errorcode Optional Application Protocol Error Code
