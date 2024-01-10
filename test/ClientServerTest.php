@@ -341,6 +341,7 @@ class ClientServerTest extends AsyncTestCase
         $stream = $client->openStream();
         $stream->write("start");
         $this->assertNull($stream->read());
+        $this->assertTrue($stream->wasReset());
 
         $timeout = EventLoop::delay(2, fn () => $this->fail("timed out"));
 

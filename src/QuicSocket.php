@@ -64,5 +64,10 @@ interface QuicSocket extends Socket
      */
     public function getTlsInfo(): TlsInfo;
 
+    /**
+     * @return bool Whether the stream was terminated with a RESET_STREAM.
+     */
+    public function wasReset(): bool;
+
     // TODO getCloseReason(): int; - it's not implemented upstream yet: https://github.com/cloudflare/quiche/issues/1699
 }

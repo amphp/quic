@@ -40,6 +40,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
     private int $currentReadSize;
     public bool $readPending = false;
     private bool $eofReached = false;
+    private bool $wasReset = false;
     public ?Suspension $reader = null;
     private readonly \Closure $cancel;
 
@@ -317,6 +318,11 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         return true;
     }
 
+    public function wasReset(): bool
+    {
+        return $this->wasReset;
+    }
+
     public function isClosed(): bool
     {
         return $this->closed === self::CLOSED;
@@ -394,6 +400,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         }
 
         if ($received === Quiche::QUICHE_ERR_STREAM_RESET || $received === Quiche::QUICHE_ERR_INVALID_STREAM_STATE) {
+            $this->wasReset = true;
             $this->eofReached = true;
             goto close;
         }
@@ -435,7 +442,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
                     }
                     $id = $this->id;
                     $suspension?->resume(static function () use ($id, $written) {
-                        if ($written === Quiche::QUICHE_ERR_STREAM_STOPPED) {
+                        if ($written === Quiche::QUICHE_ERR_STREAM_RESET || $written === Quiche::QUICHE_ERR_STREAM_STOPPED) {
                             throw new ClosedException("Could not write to a stream $id by the peer");
                         }
                         throw new StreamException("Could not write to QUIC stream $id (error: $written)");
