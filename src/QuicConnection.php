@@ -110,6 +110,12 @@ interface QuicConnection extends UdpClient, ServerSocket
     public function getCloseReason(): QuicConnectionError;
 
     /**
+     * Retrieves an open stream by its id.
+     * @return QuicSocket|null The stream or {@code null} if not found.
+     */
+    public function getStream(int $id): ?QuicSocket;
+
+    /**
      * Provides an implementation specific way to expose statistics about the connection.
      */
     public function stats() /* : implementation defined */;

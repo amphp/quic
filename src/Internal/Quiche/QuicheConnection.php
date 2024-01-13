@@ -508,6 +508,11 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         return $this->error ?? new QuicConnectionError(QuicError::NO_ERROR, -1, "");
     }
 
+    public function getStream(int $id): ?QuicSocket
+    {
+        return isset($this->streams[$id]) ? $this->streams[$id]->get() : null;
+    }
+
     public function stats()
     {
         if (!isset($this->connection)) {
@@ -557,4 +562,5 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
 
         return $stats;
     }
+
 }
