@@ -27,11 +27,5 @@
                 <directory name="src" />
             </errorLevel>
         </UnsupportedPropertyReferenceUsage>
-
-        <RedundantPropertyInitializationCheck>
-            <errorLevel type="suppress">
-                <directory name="src" />
-            </errorLevel>
-        </RedundantPropertyInitializationCheck>
     </issueHandlers>
 </psalm>
