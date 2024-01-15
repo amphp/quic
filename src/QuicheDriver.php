@@ -9,15 +9,28 @@ use Amp\Socket\SocketException;
 
 final class QuicheDriver extends QuicDriver
 {
-    public function connect(InternetAddress $address, QuicClientConfig $config, ?Cancellation $cancellation = null): QuicConnection
-    {
+    public function connect(
+        InternetAddress $address,
+        QuicClientConfig $config,
+        ?Cancellation $cancellation = null
+    ): QuicConnection {
         $uri = "udp://{$address->toString()}";
         $streamContext = \stream_context_create($config->toStreamContextArray());
 
-        \set_error_handler(fn ($errno, $errstr) => throw new ConnectException("Connection to $uri failed: (Error #$errno) $errstr", $errno));
+        \set_error_handler(fn ($errno, $errstr) => throw new ConnectException(
+            "Connection to $uri failed: (Error #$errno) $errstr",
+            $errno,
+        ));
 
         try {
-            $socket = \stream_socket_client($uri, $errno, $errstr, null, \STREAM_CLIENT_CONNECT | \STREAM_CLIENT_ASYNC_CONNECT, $streamContext);
+            $socket = \stream_socket_client(
+                $uri,
+                $errno,
+                $errstr,
+                null,
+                \STREAM_CLIENT_CONNECT | \STREAM_CLIENT_ASYNC_CONNECT,
+                $streamContext,
+            );
         } finally {
             \restore_error_handler();
         }

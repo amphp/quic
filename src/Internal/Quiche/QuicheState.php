@@ -23,9 +23,17 @@ use Revolt\EventLoop;
  */
 abstract class QuicheState
 {
+    public const SEND_BUFFER_SIZE = 65535;
+    protected const MAX_DATAGRAM_SIZE = 1350;
+    protected const LOCAL_CONN_ID_LEN = 16;
+
     public static QuicheFFI $quiche;
 
     public static \WeakMap $configCache;
+
+    public static uint8_t_ptr $sendBuffer;
+
+    public static quiche_send_info_ptr $sendInfo;
 
     /** @var array<int, string> */
     protected array $readIds = [];
@@ -37,9 +45,6 @@ abstract class QuicheState
 
     protected readonly quiche_config_ptr $quicheConfig;
 
-    protected const MAX_DATAGRAM_SIZE = 1350;
-    protected const LOCAL_CONN_ID_LEN = 16;
-
     // Disabled if no-one is doing any work, unreferenced if all workers are unreferenced
     private int $workingReferences = 0;
 
@@ -49,12 +54,6 @@ abstract class QuicheState
 
     /** @var array<int, \SplObjectStorage<QuicheConnection<TConfig>, string>> */
     public array $checkWrites = [];
-
-    public const SEND_BUFFER_SIZE = 65535;
-
-    public static uint8_t_ptr $sendBuffer;
-
-    public static quiche_send_info_ptr $sendInfo;
 
     /** @var non-empty-string */
     protected readonly string $connectionRandom;
@@ -89,8 +88,7 @@ abstract class QuicheState
 
         $writeId = EventLoop::onWritable($socket, function (string $watcher, $socket) {
             static $errorHandler;
-            $errorHandler ??= static function (int $errno, string $errstr): void {
-            };
+            $errorHandler ??= static fn (int $errno, string $errstr) => true;
 
             \set_error_handler($errorHandler);
 
@@ -136,7 +134,7 @@ abstract class QuicheState
 
         $cfg = $this->applyConfig($config);
         self::$configCache[$config] = new class($cfg) {
-            public function __construct(public quiche_config_ptr $config)
+            public function __construct(public readonly quiche_config_ptr $config)
             {
             }
 

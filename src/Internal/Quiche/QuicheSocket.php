@@ -27,11 +27,14 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 {
     use ReadableStreamIteratorAggregate;
 
+    public const UNREADABLE = 2;
+    public const UNWRITABLE = 1;
+    public const CLOSED = self::UNWRITABLE | self::UNREADABLE;
+    public const DEFAULT_CHUNK_SIZE = ReadableResourceStream::DEFAULT_CHUNK_SIZE;
+
     private static uint8_t_ptr $buffer;
 
     private static int $bufferSize = 0;
-
-    public const DEFAULT_CHUNK_SIZE = ReadableResourceStream::DEFAULT_CHUNK_SIZE;
 
     private bool $referenced = true;
 
@@ -41,10 +44,6 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     public int $closed = 0;
 
     public readonly DeferredFuture $onClose;
-
-    public const UNREADABLE = 2;
-    public const UNWRITABLE = 1;
-    public const CLOSED = self::UNWRITABLE | self::UNREADABLE;
 
     private int $currentReadSize = self::DEFAULT_CHUNK_SIZE;
 

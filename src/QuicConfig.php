@@ -95,7 +95,10 @@ abstract class QuicConfig
         return $clone;
     }
 
-    /** Whether we accept and can send bidirectional streams. If this is disabled, any opened stream will be automatically unidirectional. */
+    /**
+     * Whether we accept and can send bidirectional streams. If this is disabled, any opened stream will be
+     * automatically unidirectional.
+     */
     public function hasBidirectionalStreams(): bool
     {
         return $this->bidirectionalStreams;
@@ -277,7 +280,9 @@ abstract class QuicConfig
         return $this->datagramSendQueueSize;
     }
 
-    /** @param float $timeout After how many seconds a connection without any packets received is considered timed out - defaults to 60 seconds. Set to zero to never timeout. */
+    /** @param float $timeout After how many seconds a connection without any packets received is considered timed
+     *      out - defaults to 60 seconds. Set to zero to never timeout.
+     */
     public function withIdleTimeout(float $timeout): static
     {
         if ($timeout < 0) {
