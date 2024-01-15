@@ -687,14 +687,14 @@ class ClientServerTest extends AsyncTestCase
     {
         $server = $this->spawnEchoServer(fn (QuicServerConfig $cfg) => $cfg->withPingPeriod(0.1));
         $cfg = (new QuicClientConfig((new ClientTlsContext)->withApplicationLayerProtocols(["test"])->withoutPeerVerification()))
-            ->withIdleTimeout(0.2);
+            ->withIdleTimeout(0.5);
         $client = connect("127.0.0.1:{$this->port}", $cfg);
         $socket = $client->openStream();
 
         $socket->write("hey");
         $this->assertSame("hey", $socket->read());
 
-        \Amp\delay(0.3);
+        \Amp\delay(1);
 
         // let's verify the hasn't timed out
         $socket->write("still alive");
