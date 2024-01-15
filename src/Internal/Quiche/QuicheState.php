@@ -33,7 +33,7 @@ abstract class QuicheState
     /** @var array<int, string> */
     private array $writeIds = [];
 
-    public ?DeferredFuture $onClose = null;
+    public readonly DeferredFuture $onClose;
 
     protected readonly quiche_config_ptr $quicheConfig;
 
@@ -67,8 +67,11 @@ abstract class QuicheState
     protected function __construct(
         public readonly QuicConfig $config
     ) {
+        $this->onClose = new DeferredFuture();
+
         $keylogFile = $config->getKeylogFile();
         $this->keylogPattern = $keylogFile ?: null;
+
         $this->quicheConfig = $this->getConfig($config);
         $this->connectionRandom = \random_bytes(32);
     }

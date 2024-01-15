@@ -55,7 +55,7 @@ final class QuicheConnection implements QuicConnection
     /** @var array<int, \WeakReference<QuicheSocket>> */
     private array $streams = [];
 
-    public ?DeferredFuture $onClose = null;
+    public readonly DeferredFuture $onClose;
 
     public ?Suspension $datagramSuspension = null;
 
@@ -102,6 +102,8 @@ final class QuicheConnection implements QuicConnection
         public quiche_conn_ptr $connection,
         public readonly ?string $dcid_string = null,
     ) {
+        $this->onClose = new DeferredFuture();
+
         $acceptor = &$this->acceptor;
         $this->cancel = static function (CancelledException $exception) use (&$acceptor): void {
             $acceptor?->throw($exception);
@@ -146,7 +148,7 @@ final class QuicheConnection implements QuicConnection
 
     public function onClose(Closure $onClose): void
     {
-        ($this->onClose ??= new DeferredFuture())->getFuture()->finally($onClose);
+        $this->onClose->getFuture()->finally($onClose);
     }
 
     public function reference(): void
@@ -295,9 +297,12 @@ final class QuicheConnection implements QuicConnection
         $this->closed = true;
         $this->acceptor?->resume();
         $this->datagramSuspension?->resume();
+
         foreach ($this->streams as $stream) {
             $stream->get()?->close();
         }
+        $this->streams = [];
+
         if ($this->datagramWrites) {
             $exception = new ClosedException("The socket was closed before writing completed");
             foreach ($this->datagramWrites as [, $suspension]) {
@@ -305,7 +310,10 @@ final class QuicheConnection implements QuicConnection
             }
             $this->datagramWrites = [];
         }
-        $this->onClose?->complete();
+
+        if (!$this->onClose->isComplete()) {
+            $this->onClose->complete();
+        }
     }
 
     public function cancelTimer(): void
@@ -335,8 +343,7 @@ final class QuicheConnection implements QuicConnection
             if (!$writing) {
                 $socket->reader?->resume();
                 $socket->reader = null;
-                if ($socket->onClose?->isComplete() === false) {
-                    /** @psalm-suppress NullReference https://github.com/vimeo/psalm/issues/10554 */
+                if (!$socket->onClose->isComplete()) {
                     $socket->onClose->complete();
                 }
             } elseif (!$socket->writes->isEmpty()) {

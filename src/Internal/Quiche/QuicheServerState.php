@@ -39,7 +39,9 @@ final class QuicheServerState extends QuicheState
     /** @var array<QuicheServerConnection|\WeakReference<QuicheServerConnection>> */
     public array $connections = [];
 
-    public ?DeferredFuture $onShutdown = null;
+    public bool $referenceDuringShutdown = false;
+
+    public readonly DeferredFuture $onShutdown;
 
     /** @var resource[] */
     public array $sockets = [];
@@ -64,6 +66,7 @@ final class QuicheServerState extends QuicheState
     {
         parent::__construct($config);
 
+        $this->onShutdown = new DeferredFuture();
         $this->acceptQueueSize = $config->getAcceptQueueSize();
         $this->handshakeTimeout = $config->getHandshakeTimeout();
         $this->pingPeriod = $config->getPingPeriod();
@@ -372,9 +375,7 @@ final class QuicheServerState extends QuicheState
         parent::free();
         unset($this->sockets);
         $this->closeAcceptor();
-        // Psalm bug: https://github.com/vimeo/psalm/issues/9804
-        if ($this->onShutdown?->isComplete() === false) {
-            /** @psalm-suppress NullReference */
+        if (!$this->onShutdown->isComplete()) {
             $this->onShutdown->complete();
         }
 
@@ -396,9 +397,7 @@ final class QuicheServerState extends QuicheState
         $this->acceptor = null;
         $this->acceptQueue = [];
 
-        // Psalm bug: https://github.com/vimeo/psalm/issues/9804
-        if ($this->onClose?->isComplete() === false) {
-            /** @psalm-suppress NullReference */
+        if (!$this->onClose->isComplete()) {
             $this->onClose->complete();
         }
     }

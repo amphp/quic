@@ -40,7 +40,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     public int $closed = 0;
 
-    public ?DeferredFuture $onClose = null;
+    public readonly DeferredFuture $onClose;
 
     public const UNREADABLE = 2;
     public const UNWRITABLE = 1;
@@ -69,6 +69,8 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     public function __construct(private readonly QuicheConnection $connection, int $id = null)
     {
+        $this->onClose = new DeferredFuture();
+
         $suspension = &$this->reader;
         $this->cancel = static function (CancelledException $exception) use (&$suspension): void {
             $suspension?->throw($exception);
@@ -373,7 +375,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     public function onClose(\Closure $onClose): void
     {
-        ($this->onClose ??= new DeferredFuture())->getFuture()->finally($onClose);
+        $this->onClose->getFuture()->finally($onClose);
     }
 
     /**
@@ -437,7 +439,10 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
             close:
             if (!($this->closed & self::UNREADABLE)) {
                 $this->closed |= self::UNREADABLE;
-                $this->onClose?->complete();
+
+                if (!$this->onClose->isComplete()) {
+                    $this->onClose->complete();
+                }
             }
             return null;
         }

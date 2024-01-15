@@ -676,6 +676,9 @@ class ClientServerTest extends AsyncTestCase
 
         // The server is already closed: I expect immediate invocation
         $server->onShutdown(function () use (&$called) { $called = true; });
+
+        \Amp\delay(0); // Shutdown functions are invoked async
+
         $this->assertTrue($called);
 
         // something is written to keylog

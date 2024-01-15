@@ -158,7 +158,7 @@ final class QuicheServerSocket implements QuicServerSocket
         }
         $this->ownedConnections = [];
         $this->state->close();
-        if ($this->state->onShutdown && !$this->state->freed) {
+        if ($this->state->referenceDuringShutdown && !$this->state->freed) {
             $this->state->reference();
         }
     }
@@ -170,20 +170,22 @@ final class QuicheServerSocket implements QuicServerSocket
 
     public function onClose(\Closure $onClose): void
     {
-        ($this->state->onClose ??= new DeferredFuture())->getFuture()->finally($onClose);
+        $this->state->onClose->getFuture()->finally($onClose);
     }
 
     public function onShutdown(\Closure $onShutdown): void
     {
+        $this->state->onShutdown->getFuture()->finally($onShutdown);
+
         if ($this->state->freed) {
-            $onShutdown();
             return;
         }
 
-        if ($this->state->closed && !$this->state->onShutdown) {
+        if ($this->state->closed && !$this->state->referenceDuringShutdown) {
             $this->state->reference();
         }
-        ($this->state->onShutdown ??= new DeferredFuture())->getFuture()->finally($onShutdown);
+
+        $this->state->referenceDuringShutdown = true;
     }
 
     public function reference(): void
