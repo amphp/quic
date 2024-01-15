@@ -12,10 +12,12 @@ use Amp\Socket\TlsInfo;
 use Amp\Socket\TlsState;
 
 // TODO: Find a common interface for everything Socket-like in amp/socket, without the Readable&WritableStream interfaces.
+
 /**
  * A QUIC connection can create streams as well as send datagrams over it.
- * It can be used both on the server side via {@see QuicServerSocket::acceptConnection()} and the client side via {@see QuicDriver::connect()}.
- * On the server side its lifetime is not bound to the server. However, all streams created by this connection are bound to the lifetime of the connection itself.
+ * It can be used both on the server side via {@see QuicServerSocket::acceptConnection()} and the client side via
+ * {@see QuicDriver::connect()}. On the server side its lifetime is not bound to the server. However, all streams
+ * created by this connection are bound to the lifetime of the connection itself.
  */
 interface QuicConnection extends UdpClient, ServerSocket, ResourceStream
 {
@@ -23,10 +25,11 @@ interface QuicConnection extends UdpClient, ServerSocket, ResourceStream
      * @inheritDoc
      * Closing the quic connection will terminate all pending streams immediately.
      *
-     * @param int|QuicError $error An integer error is an application error. To send a QUIC error, use the QuicError enum.
+     * @param int|QuicError $error An integer error is an application error. To send a QUIC error, use the QuicError
+     *     enum.
      * @param string $reason An arbitrary error reason.
      */
-    public function close(int | QuicError $error = QuicError::NO_ERROR, string $reason = ""): void;
+    public function close(int|QuicError $error = QuicError::NO_ERROR, string $reason = ""): void;
 
     /**
      * @inheritDoc
@@ -55,8 +58,9 @@ interface QuicConnection extends UdpClient, ServerSocket, ResourceStream
      * Attempts sending a datagram over the connection.
      *
      * @param string $data The data to send. It MUST be smaller than {@see maxDatagramSize()}.
-     * @throws ClosedException If the connection was closed.
+     *
      * @return bool Whether the datagram send buffer was full.
+     * @throws ClosedException If the connection was closed.
      */
     public function trySend(string $data): bool;
 
@@ -66,6 +70,7 @@ interface QuicConnection extends UdpClient, ServerSocket, ResourceStream
      *
      * @param string $data The data to send. It MUST be smaller than {@see maxDatagramSize()}.
      * @param Cancellation|null $cancellation Abort waiting to send.
+     *
      * @throws ClosedException If the connection was closed.
      */
     public function send(string $data, ?Cancellation $cancellation = null): void;
@@ -104,19 +109,22 @@ interface QuicConnection extends UdpClient, ServerSocket, ResourceStream
     /**
      * Must not be called before the connection is known to be closed.
      *
-     * @return QuicConnectionError A connection error may not have been made available, e.g. on timeout. It will be NO_ERROR with a $code == -1 then.
+     * @return QuicConnectionError A connection error may not have been made available, e.g. on timeout. It will be
+     *     NO_ERROR with a $code == -1 then.
      */
     public function getCloseReason(): QuicConnectionError;
 
     /**
      * Retrieves an open stream by its id.
+     *
      * @return QuicSocket|null The stream or {@code null} if not found.
      */
     public function getStream(int $id): ?QuicSocket;
 
     /**
      * Provides an implementation specific way to expose statistics about the connection.
+     *
      * @psalm-suppress MissingReturnType
      */
-    public function stats() /* : implementation defined */;
+    public function stats() /* : implementation defined */ ;
 }

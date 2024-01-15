@@ -2,6 +2,7 @@
 
 namespace Amp\Quic;
 
+use Amp\ByteStream\ClosedException;
 use Amp\Socket\Socket;
 use Amp\Socket\TlsInfo;
 
@@ -32,7 +33,7 @@ interface QuicSocket extends Socket
      * this stream and allows the receiving end to discard any outstanding data on this stream.
      *
      * @param int $errorcode Optional Application Protocol Error Code
-     * @throws \Amp\ByteStream\ClosedException If the stream has already been closed.
+     * @throws ClosedException If the stream has already been closed.
      */
     public function resetSending(int $errorcode = 0): void;
 

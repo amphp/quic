@@ -13,6 +13,7 @@ use Amp\DeferredFuture;
 use Amp\Quic\Bindings\Quiche;
 use Amp\Quic\Bindings\uint8_t_ptr;
 use Amp\Quic\QuicConnection;
+use Amp\Quic\QuicSocket;
 use Amp\Socket\SocketAddress;
 use Amp\Socket\TlsInfo;
 use Amp\Socket\TlsState;
@@ -22,16 +23,19 @@ use Revolt\EventLoop\Suspension;
 /**
  * @implements \IteratorAggregate<int, string>
  */
-final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
+final class QuicheSocket implements QuicSocket, \IteratorAggregate
 {
     use ReadableStreamIteratorAggregate;
 
     public const DEFAULT_CHUNK_SIZE = ReadableResourceStream::DEFAULT_CHUNK_SIZE;
 
     private bool $referenced = true;
+
     /** @psalm-var positive-int */
     private int $chunkSize = self::DEFAULT_CHUNK_SIZE;
+
     public int $closed = 0;
+
     public ?DeferredFuture $onClose = null;
 
     public const UNREADABLE = 2;
@@ -39,20 +43,28 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
     public const CLOSED = self::UNWRITABLE | self::UNREADABLE;
 
     private static uint8_t_ptr $buffer;
+
     private static int $bufferSize = 0;
 
     private int $currentReadSize;
+
     public bool $readPending = false;
+
     private bool $eofReached = false;
+
     private bool $wasReset = false;
+
     public ?Suspension $reader = null;
+
     private readonly \Closure $cancel;
 
     /** @var \SplQueue<array{string, Suspension|null}> */
     public \SplQueue $writes;
 
     public int $id;
+
     public int $priority = 127;
+
     public bool $incremental = true;
 
     public function __construct(private QuicheConnection $connection, int $id = null)
@@ -62,7 +74,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
             $suspension?->throw($exception);
             $suspension = null;
         };
-        $this->writes = new \SplQueue;
+        $this->writes = new \SplQueue();
         if (isset($id)) {
             $this->id = $id;
             if ($id & 2) { // uni-directional stream
@@ -111,7 +123,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         }
 
         if ($this->reader !== null) {
-            throw new PendingReadError;
+            throw new PendingReadError();
         }
 
         /** @psalm-suppress TypeDoesNotContainType */
@@ -154,7 +166,13 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
 
     private function writeChunk(string $bytes, bool $fin = false): int
     {
-        $written = QuicheState::$quiche->quiche_conn_stream_send($this->connection->connection, $this->id, $bytes, \strlen($bytes), (int)$fin);
+        $written = QuicheState::$quiche->quiche_conn_stream_send(
+            $this->connection->connection,
+            $this->id,
+            $bytes,
+            \strlen($bytes),
+            (int) $fin
+        );
         if ($written >= 0) {
             $this->connection->state->checkSend($this->connection);
         }
@@ -218,7 +236,8 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
             chunk_error:
             if ($written < 0) {
                 if ($written === Quiche::QUICHE_ERR_DONE) {
-                    if (QuicheState::$quiche->quiche_conn_stream_writable($this->connection->connection, $this->id, 0) === Quiche::QUICHE_ERR_INVALID_STREAM_STATE) {
+                    if (QuicheState::$quiche->quiche_conn_stream_writable($this->connection->connection, $this->id, 0)
+                        === Quiche::QUICHE_ERR_INVALID_STREAM_STATE) {
                         throw new ClosedException("Could not write to a stream closed by the peer");
                     }
                 } else {
@@ -340,7 +359,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
 
     public function onClose(\Closure $onClose): void
     {
-        ($this->onClose ??= new DeferredFuture)->getFuture()->finally($onClose);
+        ($this->onClose ??= new DeferredFuture())->getFuture()->finally($onClose);
     }
 
     /**
@@ -379,7 +398,12 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         }
 
         if (isset($this->id)) {
-            QuicheState::$quiche->quiche_conn_stream_priority($this->connection->connection, $this->id, $priority, (int) $incremental);
+            QuicheState::$quiche->quiche_conn_stream_priority(
+                $this->connection->connection,
+                $this->id,
+                $priority,
+                (int) $incremental
+            );
         }
 
         $this->priority = $priority;
@@ -397,9 +421,14 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
             return null;
         }
 
-        // https://github.com/vimeo/psalm/issues/10551
-        /** @psalm-suppress UndefinedVariable */
-        $received = QuicheState::$quiche->quiche_conn_stream_recv($this->connection->connection, $this->id, self::$buffer, $this->currentReadSize, [&$fin]);
+        /** @psalm-suppress UndefinedVariable https://github.com/vimeo/psalm/issues/10551 */
+        $received = QuicheState::$quiche->quiche_conn_stream_recv(
+            $this->connection->connection,
+            $this->id,
+            self::$buffer,
+            $this->currentReadSize,
+            [&$fin]
+        );
         $this->connection->state->checkSend($this->connection);
         if ($received >= -1) {
             $this->eofReached = $fin;
@@ -456,7 +485,9 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
                     }
                     $id = $this->id;
                     $suspension?->resume(static function () use ($id, $written) {
-                        if ($written === Quiche::QUICHE_ERR_STREAM_RESET || $written === Quiche::QUICHE_ERR_STREAM_STOPPED) {
+                        if ($written === Quiche::QUICHE_ERR_STREAM_RESET
+                            || $written
+                            === Quiche::QUICHE_ERR_STREAM_STOPPED) {
                             throw new ClosedException("Could not write to a stream $id by the peer");
                         }
                         throw new StreamException("Could not write to QUIC stream $id (error: $written)");

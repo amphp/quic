@@ -7,10 +7,10 @@ use Amp\Cancellation;
 use Amp\Quic\Bindings\Quiche;
 use Amp\Quic\Bindings\quiche_config_ptr;
 use Amp\Quic\Bindings\quiche_recv_info_ptr;
+use Amp\Quic\Bindings\struct_quiche_conn_ptr;
 use Amp\Quic\Bindings\struct_sockaddr_ptr;
 use Amp\Quic\QuicClientConfig;
 use Amp\Quic\QuicConfig;
-use Amp\Quic\QuicConnection;
 use Amp\Socket\ConnectException;
 use Amp\Socket\InternetAddress;
 use Amp\Socket\SocketAddress;
@@ -19,27 +19,34 @@ use Revolt\EventLoop;
 
 /**
  * @psalm-import-type QuicheClientConnection from QuicheConnection
- * @extends QuicheState<true>
+ * @extends QuicheState<QuicClientConfig>
  */
 class QuicheClientState extends QuicheState
 {
     /** @var \WeakReference<QuicheClientConnection> */
     private \WeakReference $connection; // avoid circular reference
+
     /**
      * @noinspection PhpPropertyOnlyWrittenInspection
      * @psalm-var QuicheClientConnection
      */
     private QuicheConnection $referenceConnectionInShutdown;
 
-    private ?EventLoop\Suspension $startSuspension;
-    private string $pingTimerId;
+    private ?EventLoop\Suspension $startSuspension = null;
+
+    private ?string $pingTimerId = null;
 
     /**
      * @param resource $socket
-     * @psalm-return QuicheClientConnection
+     *
+     * @return QuicheClientConnection
      */
-    public static function connect(string $host, $socket, QuicClientConfig $config, ?Cancellation $cancellation): QuicheConnection
-    {
+    public static function connect(
+        string $host,
+        $socket,
+        QuicClientConfig $config,
+        ?Cancellation $cancellation,
+    ): QuicheConnection {
         $state = new self($config);
 
         $scid = \random_bytes(self::LOCAL_CONN_ID_LEN);
@@ -60,52 +67,80 @@ class QuicheClientState extends QuicheState
 
         // defer on cancellation to avoid cancelling right during the startSuspension success, but execute at a time no microtasks are pending
         /** @psalm-suppress PossiblyNullReference */
-        $cancellationId = $cancellation?->subscribe(fn ($e) => EventLoop::defer(fn () => $state->startSuspension->throw($e)));
+        $cancellationId = $cancellation?->subscribe(
+            fn ($e) => EventLoop::defer(fn () => $state->startSuspension->throw($e))
+        );
 
-        $state->readIds = [EventLoop::onReadable($socket, function (string $watcher, $socket) use ($state, $recv_info, &$conn): void {
-            if (false === $buf = \stream_socket_recvfrom($socket, 65507)) {
-                // handle critical local stream error
-                if ($state->startSuspension) {
-                    $state->startSuspension->throw(new ConnectException("Could not establish connection: stream_socket_recvfrom failed"));
+        /** @var struct_quiche_conn_ptr $conn */
+        $readId = EventLoop::onReadable(
+            $socket,
+            static function (string $watcher, $socket) use ($state, $recv_info, &$conn): void {
+                if (false === $buf = \stream_socket_recvfrom($socket, 65507)) {
+                    // handle critical local stream error
+                    /** @psalm-suppress TypeDoesNotContainNull, RedundantCondition */
+                    $state->startSuspension?->throw(
+                        new ConnectException("Could not establish connection: stream_socket_recvfrom failed")
+                    );
                     $state->startSuspension = null;
-                }
-                EventLoop::cancel($state->readIds[0]);
-                return;
-            }
-
-            do {
-                $success = self::$quiche->quiche_conn_recv($conn, $buf, \strlen($buf), $recv_info);
-                if ($success < 0) {
-                    // error, log it?
-                    \user_error("Failed quiche_conn_recv: $success");
+                    EventLoop::cancel($state->readIds[0]);
                     return;
                 }
-            } while (false !== $buf = \stream_socket_recvfrom($socket, self::MAX_DATAGRAM_SIZE));
 
-            /** @var QuicConnection $quicConnection it's never null */
-            $quicConnection = $state->connection->get();
-            if ($state->checkReceive($quicConnection)) {
-                if ($state->startSuspension) {
-                    $state->startSuspension->resume();
+                do {
+                    $success = self::$quiche->quiche_conn_recv($conn, $buf, \strlen($buf), $recv_info);
+                    if ($success < 0) {
+                        // error, log it?
+                        \user_error("Failed quiche_conn_recv: $success");
+                        return;
+                    }
+                } while (false !== $buf = \stream_socket_recvfrom($socket, self::MAX_DATAGRAM_SIZE));
+
+                $quicConnection = $state->connection->get();
+                \assert($quicConnection !== null);
+                if ($state->checkReceive($quicConnection)) {
+                    /** @psalm-suppress TypeDoesNotContainNull, RedundantCondition */
+                    $state->startSuspension?->resume();
                     $state->startSuspension = null;
-                }
-                if (isset($state->pingTimerId)) {
-                    // restart timer
-                    EventLoop::disable($state->pingTimerId);
-                    EventLoop::enable($state->pingTimerId);
-                }
-            }
 
-            $state->checkSend($quicConnection);
-        })];
+                    if ($state->pingTimerId) {
+                        // restart timer
+                        EventLoop::disable($state->pingTimerId);
+                        EventLoop::enable($state->pingTimerId);
+                    }
+                }
+
+                $state->checkSend($quicConnection);
+            }
+        );
+
+        $state->readIds = [$readId];
 
         $state->installWriteHandler($socket);
 
-        $conn = QuicheState::$quiche->quiche_connect($host, $scid, \strlen($scid), $recv_info->to, $recv_info->to_len, $recv_info->from, $recv_info->from_len, $state->quicheConfig);
+        $conn = QuicheState::$quiche->quiche_connect(
+            $host,
+            $scid,
+            \strlen($scid),
+            $recv_info->to,
+            $recv_info->to_len,
+            $recv_info->from,
+            $recv_info->from_len,
+            $state->quicheConfig,
+        );
+
         \assert($conn !== null);
+
         //self::$quiche->quiche_conn_set_qlog_path($conn, __DIR__ . "/../qlog.log", "log", "log");
-        /** @psalm-var QuicheClientConnection $quicConnection */
-        $quicConnection = new QuicheConnection($state, $socket, $localAddress, $localSockaddr, $remoteAddress, $remoteSockaddr, $conn);
+        $quicConnection = new QuicheConnection(
+            $state,
+            $socket,
+            $localAddress,
+            $localSockaddr,
+            $remoteAddress,
+            $remoteSockaddr,
+            $conn,
+        );
+
         $state->connection = \WeakReference::create($quicConnection);
 
         if (-1 > $err = $state->trySendConnection($quicConnection)) {
@@ -113,7 +148,9 @@ class QuicheClientState extends QuicheState
         }
 
         $timeout = EventLoop::delay($config->getHandshakeTimeout(), function () use ($state) {
-            $state->startSuspension->throw(new ConnectException("Connection timed out", previous: new TimeoutException));
+            $state->startSuspension->throw(
+                new ConnectException("Connection timed out", previous: new TimeoutException())
+            );
             $state->startSuspension = null;
         });
 
@@ -123,8 +160,7 @@ class QuicheClientState extends QuicheState
             EventLoop::cancel($timeout);
             EventLoop::unreference($state->readIds[0]);
 
-            // https://github.com/vimeo/psalm/issues/10553
-            /** @psalm-suppress PossiblyNullArgument */
+            /** @psalm-suppress PossiblyNullArgument https://github.com/vimeo/psalm/issues/10553 */
             $cancellation?->unsubscribe($cancellationId);
         }
 
@@ -142,26 +178,31 @@ class QuicheClientState extends QuicheState
 
     private function cancelPing(): void
     {
-        if (isset($this->pingTimerId)) {
+        if ($this->pingTimerId) {
             EventLoop::cancel($this->pingTimerId);
-            unset($this->pingTimerId);
+            $this->pingTimerId = null;
         }
     }
 
-    public function closeConnection(QuicheConnection $connection, bool $applicationError, int $error, string $reason): void
-    {
-        parent::closeConnection($connection, $applicationError, $error, $reason);
-        $this->referenceConnectionInShutdown = $connection;
+    public function closeConnection(
+        QuicheConnection $quicConnection,
+        bool $applicationError,
+        int $error,
+        string $reason,
+    ): void {
+        parent::closeConnection($quicConnection, $applicationError, $error, $reason);
+        $this->referenceConnectionInShutdown = $quicConnection;
         $this->cancelPing();
     }
 
-    public function signalConnectionClosed(QuicheConnection $quicConnection): void
+    /** @param QuicheClientConnection $connection */
+    public function signalConnectionClosed(QuicheConnection $connection): void
     {
         if ($this->startSuspension) {
             $this->startSuspension->throw(new StreamException("Connection attempt rejected"));
             $this->startSuspension = null;
         }
-        parent::signalConnectionClosed($quicConnection);
+        parent::signalConnectionClosed($connection);
         $this->free();
     }
 
@@ -172,8 +213,9 @@ class QuicheClientState extends QuicheState
         unset($this->referenceConnectionInShutdown);
     }
 
-    // https://github.com/vimeo/psalm/issues/10552
-    /** @psalm-suppress InvalidMethodCall */
+    /**
+     * @param QuicClientConfig $config
+     */
     protected function applyConfig(QuicConfig $config): quiche_config_ptr
     {
         $cfg = parent::applyConfig($config);
@@ -186,5 +228,6 @@ class QuicheClientState extends QuicheState
         return $cfg;
     }
 
-    // No explicit __destruct() here, it's managed through the destructor of QuicheConnection, which will close the connection: signalConnectionClosed() will then eventually free it.
+    // No explicit __destruct() here, it's managed through the destructor of QuicheConnection, which will close the
+    // connection: signalConnectionClosed() will then eventually free it.
 }

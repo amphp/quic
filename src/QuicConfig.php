@@ -6,28 +6,51 @@ abstract class QuicConfig
 {
     // Just have enough initial data. May be lowered on servers with high traffic and low RAM.
     protected int $maxData = 1 << 20;
+
     protected int $maxLocalBidirectionalData = 1 << 20;
+
     protected int $maxRemoteBidirectionalData = 1 << 20;
+
     protected int $maxUnidirectionalData = 1 << 20;
-    protected int $maxBidirectionalStreams = 100; // 100 streams seems to generally be a reasonable limit - and it's the lower recommended bound for HTTP/3 streams (RFC 9114 Section 6.1)
-    protected int $maxUnidirectionalStreams = 100; // Same than for maxBidirectionalStreams
-    protected int $datagramReceiveQueueSize = 32; // Balance stale datagrams vs backpressure
-    protected int $datagramSendQueueSize = 8; // Doesn't need to be that large, ideally data should be written immediately in a microtask, otherwise the server is seriously overloaded.
+
+    /**
+     * 100 streams seems to generally be a reasonable limit - and it's the lower recommended bound for HTTP/3 streams
+     * (RFC 9114 Section 6.1)
+     */
+    protected int $maxBidirectionalStreams = 100; //
+
+    /** Same then for maxBidirectionalStreams */
+    protected int $maxUnidirectionalStreams = 100; //
+
+    /** Balance stale datagrams vs backpressure */
+    protected int $datagramReceiveQueueSize = 32;
+
+    /**
+     * Doesn't need to be that large, ideally data should be written immediately in a microtask, otherwise the server
+     * is seriously overloaded.
+     */
+    protected int $datagramSendQueueSize = 8;
+
     protected bool $unidirectionalStreams = true;
+
     protected bool $bidirectionalStreams = true;
+
     protected bool $datagrams = true;
-    protected float $handshakeTimeout = 10; // A handshake ought to be fast, even with 1-RTT.
-    protected float $idleTimeout = 60; // Given that we default to sending pings after 30 seconds, we'll consider no reply at all as a dead connection.
-    protected float $pingPeriod = 30; // As recommended in RFC 9000 Section 10.1.2 to avoid losing state in NAT middleboxes.
-    protected ?string $keylogFile = null;
+
+    /** A handshake ought to be fast, even with 1-RTT. */
+    protected float $handshakeTimeout = 10; //
+
+    /** Given that we default to sending pings after 30 seconds, we'll consider no reply at all as a dead connection. */
+    protected float $idleTimeout = 60; //
+
+    /** As recommended in RFC 9000 Section 10.1.2 to avoid losing state in NAT middleboxes. */
+    protected float $pingPeriod = 30;
+
+    protected ?string $keylogFile;
 
     protected function __construct()
     {
-        // https://github.com/vimeo/psalm/issues/10547
-        /** @psalm-suppress PossiblyFalsePropertyAssignmentValue */
-        if ("" != $keylogFile = \getenv("SSLKEYLOGFILE")) {
-            $this->keylogFile = $keylogFile;
-        }
+        $this->keylogFile = \getenv("SSLKEYLOGFILE") ?: null;
     }
 
     /** Enables receiving of unidirectional streams - enabled by default. */
@@ -273,7 +296,10 @@ abstract class QuicConfig
         return $this->idleTimeout;
     }
 
-    /** @param float $timeout After how many seconds a connection without a completed handshake is considered timed out - defaults to 10 seconds. For clients this setting is inherited from the {@see ConnectContext::getConnectTimeout()} */
+    /** @param float $timeout After how many seconds a connection without a completed handshake is considered timed
+     *      out - defaults to 10 seconds. For clients this setting is inherited from the
+     *      @see ConnectContext::getConnectTimeout()}
+     */
     public function withHandshakeTimeout(float $timeout): static
     {
         if ($timeout < 0) {
@@ -292,7 +318,9 @@ abstract class QuicConfig
         return $this->handshakeTimeout;
     }
 
-    /** @param float $seconds How many seconds after the last received UDP packet pertaining to a connection, an ack-eclicting or ping frame is sent - defaults to 30 seconds. Set to zero to disable. */
+    /** @param float $seconds How many seconds after the last received UDP packet pertaining to a connection,
+     *      an ack-eclicting or ping frame is sent - defaults to 30 seconds. Set to zero to disable.
+     */
     public function withPingPeriod(float $seconds): static
     {
         if ($seconds < 0) {
@@ -305,13 +333,17 @@ abstract class QuicConfig
         return $clone;
     }
 
-    /** @return float How many seconds after the last received UDP packet pertaining to a connection, an ack-eclicting or ping frame is sent. */
+    /** @return float How many seconds after the last received UDP packet pertaining to a connection, an ack-eclicting
+     *      or ping frame is sent.
+     */
     public function getPingPeriod(): float
     {
         return $this->pingPeriod;
     }
 
-    /** @param string $path A path to where the keylog files will be created at. May contain %h as a placeholder for the peer address. */
+    /** @param string $path A path to where the keylog files will be created at. May contain %h as a placeholder
+     *      for the peer address.
+     */
     public function withKeylogFile(string $path): static
     {
         $clone = clone $this;
@@ -337,12 +369,18 @@ abstract class QuicConfig
     /** @return bool Whether peer verification is enabled. Provided by ClientTlsContext or ServerTlsContext. */
     abstract public function hasPeerVerification(): bool;
 
-    /** @return null|string Path to the trusted certificates directory if one is set, otherwise {@code null}. Provided by ClientTlsContext or ServerTlsContext. */
+    /** @return null|string Path to the trusted certificates directory if one is set, otherwise `null`.
+     *      Provided by ClientTlsContext or ServerTlsContext.
+     */
     abstract public function getCaPath(): ?string;
 
-    /** @return null|string Path to the trusted certificates file if one is set, otherwise {@code null}. Provided by ClientTlsContext or ServerTlsContext. */
+    /** @return null|string Path to the trusted certificates file if one is set, otherwise `null`.
+     *      Provided by ClientTlsContext or ServerTlsContext.
+     */
     abstract public function getCaFile(): ?string;
 
-    /** @return string[] Application layer protocols to use. If no protocols match on client or server, the connection cannot be established. Provided by ClientTlsContext or ServerTlsContext. */
+    /** @return string[] Application layer protocols to use. If no protocols match on client or server,
+     *      the connection cannot be established. Provided by ClientTlsContext or ServerTlsContext.
+     */
     abstract public function getApplicationLayerProtocols(): array;
 }

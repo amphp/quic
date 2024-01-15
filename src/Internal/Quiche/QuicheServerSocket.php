@@ -6,6 +6,7 @@ use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
+use Amp\Future;
 use Amp\Quic\QuicServerConfig;
 use Amp\Quic\QuicServerSocket;
 use Amp\Quic\QuicSocket;
@@ -13,12 +14,15 @@ use Amp\Socket\BindContext;
 use Amp\Socket\InternetAddress;
 use Amp\Socket\PendingAcceptError;
 use Revolt\EventLoop;
+use function Amp\async;
 
 /** @psalm-import-type QuicheServerConnection from QuicheConnection */
 final class QuicheServerSocket implements QuicServerSocket
 {
     private readonly QuicheServerState $state;
+
     private bool $referenced = true;
+
     private \Closure $cancel;
 
     /** @var array<string, QuicheServerConnection> */
@@ -50,7 +54,7 @@ final class QuicheServerSocket implements QuicServerSocket
     public function accept(?Cancellation $cancellation = null): ?QuicSocket
     {
         if ($this->state->acceptor) {
-            throw new PendingAcceptError;
+            throw new PendingAcceptError();
         }
 
         $foundCancellation = new DeferredCancellation();
@@ -59,22 +63,26 @@ final class QuicheServerSocket implements QuicServerSocket
         });
 
         try {
-            foreach (\Amp\Future::iterate((function () use ($foundCancellation) {
-                try {
-                    $foundCancellation = $foundCancellation->getCancellation();
-                    foreach ($this->ownedConnections as $connection) {
-                        yield \Amp\async($connection->accept(...), $foundCancellation)->ignore();
+            foreach (Future::iterate(
+                (function () use ($foundCancellation) {
+                    try {
+                        $foundCancellation = $foundCancellation->getCancellation();
+                        foreach ($this->ownedConnections as $connection) {
+                            yield async($connection->accept(...), $foundCancellation)->ignore();
+                        }
+                        while ($connection = $this->acceptConnection($foundCancellation)) {
+                            /** @var QuicheServerConnection $connection */
+                            $key = $connection->getRemoteAddress()->toString();
+                            $this->ownedConnections[$key] = $connection;
+                            $connection->onClose(function () use ($key) {
+                                unset($this->ownedConnections[$key]);
+                            });
+                            yield async($connection->accept(...), $foundCancellation)->ignore();
+                        }
+                    } catch (CancelledException) {
                     }
-                    while ($connection = $this->acceptConnection($foundCancellation)) {
-                        /** @var QuicheServerConnection $connection */
-                        $key = $connection->getRemoteAddress()->toString();
-                        $this->ownedConnections[$key] = $connection;
-                        $connection->onClose(function () use ($key) { unset($this->ownedConnections[$key]); });
-                        yield \Amp\async($connection->accept(...), $foundCancellation)->ignore();
-                    }
-                } catch (CancelledException) {
-                }
-            })()) as $future) {
+                })()
+            ) as $future) {
                 if ($socket = $future->await()) {
                     $normalExit = true;
                     return $socket;
@@ -86,8 +94,7 @@ final class QuicheServerSocket implements QuicServerSocket
             $normalExit = true;
             throw $e;
         } finally {
-            // https://github.com/vimeo/psalm/issues/10553
-            /** @psalm-suppress PossiblyNullArgument */
+            /** @psalm-suppress PossiblyNullArgument https://github.com/vimeo/psalm/issues/10553 */
             $cancellation?->unsubscribe($id);
             $foundCancellation->cancel();
 
@@ -104,7 +111,7 @@ final class QuicheServerSocket implements QuicServerSocket
     public function acceptConnection(?Cancellation $cancellation = null): ?\Amp\Quic\QuicConnection
     {
         if ($this->state->acceptor) {
-            throw new PendingAcceptError;
+            throw new PendingAcceptError();
         }
 
         if ($this->state->closed) {
@@ -163,7 +170,7 @@ final class QuicheServerSocket implements QuicServerSocket
 
     public function onClose(\Closure $onClose): void
     {
-        ($this->state->onClose ??= new DeferredFuture)->getFuture()->finally($onClose);
+        ($this->state->onClose ??= new DeferredFuture())->getFuture()->finally($onClose);
     }
 
     public function onShutdown(\Closure $onShutdown): void
@@ -176,7 +183,7 @@ final class QuicheServerSocket implements QuicServerSocket
         if ($this->state->closed && !$this->state->onShutdown) {
             $this->state->reference();
         }
-        ($this->state->onShutdown ??= new DeferredFuture)->getFuture()->finally($onShutdown);
+        ($this->state->onShutdown ??= new DeferredFuture())->getFuture()->finally($onShutdown);
     }
 
     public function reference(): void

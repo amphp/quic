@@ -9,6 +9,7 @@ use Amp\Socket\ConnectContext;
 final class QuicClientConfig extends QuicConfig
 {
     private ClientTlsContext $tlsContext;
+
     private ConnectContext $connectContext;
 
     private ?string $hostname = null;

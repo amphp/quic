@@ -6,8 +6,11 @@ use Amp\DeferredFuture;
 use Amp\Quic\Bindings\Quiche;
 use Amp\Quic\Bindings\quiche_config_ptr;
 use Amp\Quic\Bindings\quiche_recv_info_ptr;
+use Amp\Quic\Bindings\struct_sockaddr_in6_ptr;
+use Amp\Quic\Bindings\struct_sockaddr_in_ptr;
 use Amp\Quic\Bindings\struct_sockaddr_ptr;
 use Amp\Quic\Bindings\uint8_t_ptr;
+use Amp\Quic\QuicClientConfig;
 use Amp\Quic\QuicConfig;
 use Amp\Quic\QuicError;
 use Amp\Quic\QuicServerConfig;
@@ -19,7 +22,7 @@ use Revolt\EventLoop\Suspension;
 
 /**
  * @psalm-import-type QuicheServerConnection from QuicheConnection
- * @extends QuicheState<false>
+ * @extends QuicheState<QuicServerConfig>
  */
 class QuicheServerState extends QuicheState
 {
@@ -29,11 +32,14 @@ class QuicheServerState extends QuicheState
     public array $acceptQueue = [];
 
     public int $acceptQueueSize;
+
     public float $pingPeriod;
+
     public float $handshakeTimeout;
 
     /** @var array<QuicheServerConnection|\WeakReference<QuicheServerConnection>> */
     public array $connections = [];
+
     public ?DeferredFuture $onShutdown = null;
 
     /** @var resource[] */
@@ -41,11 +47,17 @@ class QuicheServerState extends QuicheState
 
     /** @var InternetAddress[] */
     public array $localAddresses = [];
-    /** @var \Amp\Quic\Bindings\struct_sockaddr_in_ptr[]|\Amp\Quic\Bindings\struct_sockaddr_in6_ptr[] */
+
+    /** @var struct_sockaddr_in_ptr[]|struct_sockaddr_in6_ptr[] */
     protected array $localSockaddrs = [];
 
-    /** @var \SplPriorityQueue<int, \WeakReference<QuicheServerConnection>> The ping queue is ordered by $pingInsertionTime and guaranteeing that the entry with the pingInsertionTime of the top-most entry is always lower or equal to any $lastReceiveTime. */
-    private \SplPriorityQueue $pingQueue;
+    /**
+     * @var \SplPriorityQueue<int, \WeakReference<QuicheServerConnection>>|null The ping queue is ordered by
+     * $pingInsertionTime and guaranteeing that the entry with the pingInsertionTime of the top-most entry is
+     * always lower or equal to any $lastReceiveTime.
+     */
+    private readonly ?\SplPriorityQueue $pingQueue;
+
     private string $pingTimerId;
 
     /** @param resource[] $sockets */
@@ -56,9 +68,7 @@ class QuicheServerState extends QuicheState
         $this->acceptQueueSize = $config->getAcceptQueueSize();
         $this->handshakeTimeout = $config->getHandshakeTimeout();
         $this->pingPeriod = $config->getPingPeriod();
-        if ($this->pingPeriod) {
-            $this->pingQueue = new \SplPriorityQueue;
-        }
+        $this->pingQueue = $this->pingPeriod ? new \SplPriorityQueue() : null;
 
         foreach ($sockets as $socket) {
             $socketId = (int) $socket;
@@ -95,9 +105,17 @@ class QuicheServerState extends QuicheState
             $port = (int) \substr($sender, $colon + 1);
             if (\strpos($sender, ":") !== $colon) {
                 // remove the outer []
-                $sockaddr = self::toSockaddr(\inet_pton(\substr($sender, 1, $colon - 2)), $port, InternetAddressVersion::IPv6);
+                $sockaddr = self::toSockaddr(
+                    \inet_pton(\substr($sender, 1, $colon - 2)),
+                    $port,
+                    InternetAddressVersion::IPv6
+                );
             } else {
-                $sockaddr = self::toSockaddr(\inet_pton(\substr($sender, 0, $colon)), $port, InternetAddressVersion::IPv4);
+                $sockaddr = self::toSockaddr(
+                    \inet_pton(\substr($sender, 0, $colon)),
+                    $port,
+                    InternetAddressVersion::IPv4
+                );
             }
 
             // dcid: destination connection id
@@ -109,9 +127,20 @@ class QuicheServerState extends QuicheState
             $dcid_len = Quiche::QUICHE_MAX_CONN_ID_LEN;
             $token = uint8_t_ptr::array(128);
             $token_len = 128;
-            // https://github.com/vimeo/psalm/issues/10551
-            /** @psalm-suppress UndefinedVariable */
-            if (0 > $success = self::$quiche->quiche_header_info($buf, \strlen($buf), self::LOCAL_CONN_ID_LEN, [&$version], [&$type], $scid, [&$scid_len], $dcid, [&$dcid_len], $token, [&$token_len])) {
+            /** @psalm-suppress UndefinedVariable https://github.com/vimeo/psalm/issues/10551 */
+            if (0 > $success = self::$quiche->quiche_header_info(
+                    $buf,
+                    \strlen($buf),
+                    self::LOCAL_CONN_ID_LEN,
+                    [&$version],
+                    [&$type],
+                    $scid,
+                    [&$scid_len],
+                    $dcid,
+                    [&$dcid_len],
+                    $token,
+                    [&$token_len]
+                )) {
                 // error, log it? where to? Maybe take a logger?
                 // user_error("Failed quiche_header_info: $success");
                 return;
@@ -123,7 +152,14 @@ class QuicheServerState extends QuicheState
             if (!$quicConnectionWeak) {
                 if (!self::$quiche->quiche_version_is_supported($version)) {
                     $out = uint8_t_ptr::array(parent::MAX_DATAGRAM_SIZE);
-                    $out_len = self::$quiche->quiche_negotiate_version($scid, $scid_len, $dcid, $dcid_len, $out, parent::MAX_DATAGRAM_SIZE);
+                    $out_len = self::$quiche->quiche_negotiate_version(
+                        $scid,
+                        $scid_len,
+                        $dcid,
+                        $dcid_len,
+                        $out,
+                        parent::MAX_DATAGRAM_SIZE
+                    );
                     \stream_socket_sendto($socket, $out->toString($out_len), 0, $sender);
                     return;
                 }
@@ -134,7 +170,19 @@ class QuicheServerState extends QuicheState
                     $expected_token = $token_prefix . $dcid->toString($dcid_len);
                     $new_cid = \random_bytes(parent::LOCAL_CONN_ID_LEN);
                     $out = uint8_t_ptr::array(parent::MAX_DATAGRAM_SIZE);
-                    $out_len = self::$quiche->quiche_retry($scid, $scid_len, $dcid, $dcid_len, $new_cid, self::LOCAL_CONN_ID_LEN, $expected_token, \strlen($expected_token), $version, $out, self::MAX_DATAGRAM_SIZE);
+                    $out_len = self::$quiche->quiche_retry(
+                        $scid,
+                        $scid_len,
+                        $dcid,
+                        $dcid_len,
+                        $new_cid,
+                        self::LOCAL_CONN_ID_LEN,
+                        $expected_token,
+                        \strlen($expected_token),
+                        $version,
+                        $out,
+                        self::MAX_DATAGRAM_SIZE
+                    );
                     \stream_socket_sendto($socket, $out->toString($out_len), 0, $sender);
                     return;
                 }
@@ -152,16 +200,41 @@ class QuicheServerState extends QuicheState
                 // TODO limit pending connections per IP to prevent denial by ram exhaustion - also maybe a global max of connections?
 
                 $original_dcid = \substr($token_str, \strlen($token_prefix));
-                if (!$connection = self::$quiche->quiche_accept($dcid, $dcid_len, $original_dcid, \strlen($original_dcid), struct_sockaddr_ptr::castFrom($localSockaddr), Quiche::sizeof($localSockaddr[0]), struct_sockaddr_ptr::castFrom($sockaddr), Quiche::sizeof($sockaddr[0]), $this->quicheConfig)) {
+                if (!$connection = self::$quiche->quiche_accept(
+                    $dcid,
+                    $dcid_len,
+                    $original_dcid,
+                    \strlen($original_dcid),
+                    struct_sockaddr_ptr::castFrom($localSockaddr),
+                    Quiche::sizeof($localSockaddr[0]),
+                    struct_sockaddr_ptr::castFrom($sockaddr),
+                    Quiche::sizeof($sockaddr[0]),
+                    $this->quicheConfig
+                )) {
                     return;
                 }
 
-                $quicConnection = new QuicheConnection($this, $socket, $localAddress, $localSockaddr, InternetAddress::fromString($sender), $sockaddr, $connection, $dcid_string);
-                $quicConnection->establishingTimer = EventLoop::delay($this->handshakeTimeout, $quicConnection->handshakeTimeout(...));
+                $quicConnection = new QuicheConnection(
+                    $this,
+                    $socket,
+                    $localAddress,
+                    $localSockaddr,
+                    InternetAddress::fromString($sender),
+                    $sockaddr,
+                    $connection,
+                    $dcid_string
+                );
+                $quicConnection->establishingTimer = EventLoop::delay(
+                    $this->handshakeTimeout,
+                    $quicConnection->handshakeTimeout(...)
+                );
                 EventLoop::unreference($quicConnection->establishingTimer);
-                $this->connections[$dcid_string] = $quicConnection; // We may not drop the connection before fully establishing it. Keep a proper reference.
+                // We may not drop the connection before fully establishing it. Keep a proper reference.
+                $this->connections[$dcid_string] = $quicConnection;
             } else {
-                $quicConnection = $quicConnectionWeak instanceof QuicheConnection ? $quicConnectionWeak : $quicConnectionWeak->get();
+                $quicConnection = $quicConnectionWeak instanceof QuicheConnection
+                    ? $quicConnectionWeak
+                    : $quicConnectionWeak->get();
             }
             /**
              * @psalm-var QuicheServerConnection $quicConnection
@@ -174,8 +247,6 @@ class QuicheServerState extends QuicheState
             $recv_info->to = struct_sockaddr_ptr::castFrom($localSockaddr);
             $recv_info->to_len = Quiche::sizeof($localSockaddr[0]);
             $success = self::$quiche->quiche_conn_recv($quicConnection->connection, $buf, \strlen($buf), $recv_info);
-            // TODO: psalm something is super weird with $quicConnection evolving over the next three psalm-trace calls from Amp\Quic\Internal\Quiche\QuicheConnection<false> to Amp\Quic\Internal\Quiche\QuicheConnection<false>|Amp\Quic\Internal\Quiche\QuicheConnection<bool> and finally to Amp\Quic\Internal\Quiche\QuicheConnection<bool>. Wtf? Similar things happen with the $quicConnectionWeak
-            /** @psalm-trace $quicConnection */
             if ($success < 0) {
                 // error, log it?
                 // user_error("Failed quiche_conn_recv: $success");
@@ -183,7 +254,6 @@ class QuicheServerState extends QuicheState
                 return;
             }
 
-            /** @psalm-trace $quicConnection */
             if ($this->checkReceive($quicConnection)) {
                 /** @psalm-trace $quicConnection */
                 if ($quicConnection->establishingTimer !== null) {
@@ -204,7 +274,7 @@ class QuicheServerState extends QuicheState
                     }
                 }
 
-                if (isset($this->pingQueue)) {
+                if ($this->pingQueue) {
                     $quicConnection->lastReceiveTime = $now = (int) (\microtime(true) * 1e9);
                     if ($quicConnection->pingInsertionTime < 0) {
                         if ($this->pingQueue->isEmpty()) {
@@ -213,7 +283,10 @@ class QuicheServerState extends QuicheState
                         }
                         $this->pingQueue->insert($quicConnectionWeak, -$now);
                         $quicConnection->pingInsertionTime = $now;
-                    } elseif ($quicConnection === $this->pingQueue->top()->get() && $quicConnection->pingInsertionTime < $now - $this->pingPeriod * 5e8) {
+                    } elseif ($quicConnection === $this->pingQueue->top()->get()
+                        && $quicConnection->pingInsertionTime
+                        < $now - $this->pingPeriod * 5e8
+                    ) {
                         EventLoop::cancel($this->pingTimerId);
                         /** @var QuicheServerConnection $pingConnection */
                         $pingConnection = $quicConnection;
@@ -228,10 +301,12 @@ class QuicheServerState extends QuicheState
                         } while ($pingConnection->pingInsertionTime !== $pingConnection->lastReceiveTime);
 
                         $queueTop = $this->pingQueue->top()->get();
-                        // TODO: psalm: if I remove this I get PossiblyNullPropertyFetch. If I leave it I get RedundantCondition. Well, thanks?
-                        \assert($queueTop !== null);
-                        $this->pingTimerId = EventLoop::delay(($queueTop->pingInsertionTime - $now) / 1e9 + $this->pingPeriod, $this->sendPings(...));
-                        EventLoop::unreference($this->pingTimerId);
+                        if ($queueTop) {
+                            $this->pingTimerId = EventLoop::unreference(EventLoop::delay(
+                                ($queueTop->pingInsertionTime - $now) / 1e9 + $this->pingPeriod,
+                                $this->sendPings(...),
+                            ));
+                        }
                     }
                 }
             }
@@ -242,7 +317,7 @@ class QuicheServerState extends QuicheState
     private function sendPings(): void
     {
         $pingCutoff = (\microtime(true) - $this->pingPeriod) * 1e9;
-        while (!$this->pingQueue->isEmpty()) {
+        while ($this->pingQueue && !$this->pingQueue->isEmpty()) {
             $quicConnectionWeak = $this->pingQueue->extract();
             if ($quicConnection = $quicConnectionWeak->get()) {
                 if ($quicConnection->lastReceiveTime > $pingCutoff) {
@@ -265,8 +340,9 @@ class QuicheServerState extends QuicheState
         }
     }
 
-    // https://github.com/vimeo/psalm/issues/10552
-    /** @psalm-suppress InvalidMethodCall */
+    /**
+     * @param QuicServerConfig $config
+     */
     protected function applyConfig(QuicConfig $config): quiche_config_ptr
     {
         $cfg = parent::applyConfig($config);
@@ -301,7 +377,7 @@ class QuicheServerState extends QuicheState
             /** @psalm-suppress NullReference */
             $this->onShutdown->complete();
         }
-        if ($this->pingPeriod && !$this->pingQueue->isEmpty()) {
+        if ($this->pingQueue && !$this->pingQueue->isEmpty()) {
             EventLoop::cancel($this->pingTimerId);
         }
     }
@@ -326,18 +402,27 @@ class QuicheServerState extends QuicheState
         }
     }
 
-    public function closeConnection(QuicheConnection $connection, bool $applicationError, int $error, string $reason): void
-    {
-        parent::closeConnection($connection, $applicationError, $error, $reason);
+    /** @param QuicheConnection<QuicServerConfig> $quicConnection */
+    public function closeConnection(
+        QuicheConnection $quicConnection,
+        bool $applicationError,
+        int $error,
+        string $reason
+    ): void {
+        \assert(\is_string($quicConnection->dcid_string));
+
+        parent::closeConnection($quicConnection, $applicationError, $error, $reason);
         // change it to a hard reference to avoid losing context during connection shutdown
-        $this->connections[$connection->dcid_string] = $connection;
+        $this->connections[$quicConnection->dcid_string] = $quicConnection;
     }
 
-    public function signalConnectionClosed(QuicheConnection $quicConnection): void
+    /** @param QuicheServerConnection $connection */
+    public function signalConnectionClosed(QuicheConnection $connection): void
     {
-        // TODO: psalm: Why do we have a PossiblyNullArrayOffset here, but not just above in closeConnection where we also access $quicConnection->dcid_string ???
-        unset($this->connections[$quicConnection->dcid_string]);
-        parent::signalConnectionClosed($quicConnection);
+        \assert(\is_string($connection->dcid_string));
+
+        unset($this->connections[$connection->dcid_string]);
+        parent::signalConnectionClosed($connection);
 
         if ($this->closed && !$this->connections) {
             $this->free();

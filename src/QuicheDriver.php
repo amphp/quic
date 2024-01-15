@@ -31,11 +31,17 @@ class QuicheDriver extends QuicDriver
 
         \stream_set_blocking($socket, false);
 
-        return Internal\Quiche\QuicheClientState::connect($config->getHostname() ?? $address->getAddress(), $socket, $config, $cancellation);
+        return Internal\Quiche\QuicheClientState::connect(
+            $config->getHostname() ?? $address->getAddress(),
+            $socket,
+            $config,
+            $cancellation,
+        );
     }
 
     public function bind(array $addresses, QuicServerConfig $config): QuicServerSocket
     {
+        $servers = [];
         foreach ($addresses as $address) {
             $uri = "udp://{$address->toString()}";
             $streamContext = \stream_context_create($config->toStreamContextArray());
@@ -50,8 +56,6 @@ class QuicheDriver extends QuicDriver
                 );
             }
 
-            // https://github.com/vimeo/psalm/issues/10546
-            /** @psalm-suppress PossiblyUndefinedVariable */
             $servers[] = $server;
         }
 

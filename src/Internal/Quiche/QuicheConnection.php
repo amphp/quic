@@ -13,6 +13,9 @@ use Amp\Quic\Bindings\quiche_path_stats;
 use Amp\Quic\Bindings\quiche_stats;
 use Amp\Quic\Bindings\struct_sockaddr_in6_ptr;
 use Amp\Quic\Bindings\struct_sockaddr_in_ptr;
+use Amp\Quic\QuicClientConfig;
+use Amp\Quic\QuicConfig;
+use Amp\Quic\QuicConnection;
 use Amp\Quic\QuicConnectionError;
 use Amp\Quic\QuicError;
 use Amp\Quic\Quiche\QuichePathStats;
@@ -31,21 +34,27 @@ use Kelunik\Certificate\Certificate;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
 
-// Note: A QuicheConnection holds the socket it is currently "connected" to. It may be migrated any time to another socket, e.g. when a peer sends from another socket.
-// For example, when listening on :: and 0.0.0.0, a peer may transition at any time between the IPv4 and IPv6. At that point the socket on the connection will also change.
 /**
- * @template IsClient of bool
- * @psalm-type QuicheClientConnection = QuicheConnection<true>
- * @psalm-type QuicheServerConnection = QuicheConnection<false>
+ * Note: A QuicheConnection holds the socket it is currently "connected" to. It may be migrated any time to another
+ * socket, e.g. when a peer sends from another socket. For example, when listening on :: and 0.0.0.0, a peer may
+ * transition at any time between the IPv4 and IPv6. At that point the socket on the connection will also change.
+ *
+ * @template-covariant TConfigType of QuicConfig
+ *
+ * @psalm-type QuicheClientConnection = QuicheConnection<QuicClientConfig>
+ * @psalm-type QuicheServerConnection = QuicheConnection<QuicServerConfig>
  */
-final class QuicheConnection implements \Amp\Quic\QuicConnection
+final class QuicheConnection implements QuicConnection
 {
     private ?Suspension $acceptor = null;
+
     private bool $referenced = true;
+
     private bool $closed = false;
 
     /** @psalm-var array<int, \WeakReference<QuicheSocket>> */
     private array $streams = [];
+
     public ?DeferredFuture $onClose = null;
 
     public ?Suspension $datagramSuspension = null;
@@ -54,59 +63,71 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     public array $streamQueue = [];
 
     public float $nextTimer = 0;
+
     public string $timer;
 
     public int $bidirectionalStreamId = -4;
+
     public int $unidirectionalStreamId = -2;
+
     private ?TlsInfo $tlsInfo = null;
 
     private \Closure $cancel;
+
     public ?string $establishingTimer;
 
     public bool $queuedSend = false;
+
     /** @psalm-var array<list{string, Suspension}> */
     public array $datagramWrites = [];
+
     private QuicConnectionError $error;
 
     public int $lastReceiveTime;
+
     public int $pingInsertionTime = -1;
 
+    /**
+     * @param QuicheState<TConfigType> $state
+     * @param (TConfigType is QuicServerConfig ? string : null) $dcid_string
+     */
     public function __construct(
-        public QuicheState $state,
+        public readonly QuicheState $state,
         /** @var resource */
         public $socket,
         public InternetAddress $localAddress,
-        public struct_sockaddr_in_ptr | struct_sockaddr_in6_ptr $localSockaddr,
+        public struct_sockaddr_in_ptr|struct_sockaddr_in6_ptr $localSockaddr,
         public InternetAddress $address,
-        public struct_sockaddr_in_ptr | struct_sockaddr_in6_ptr $sockaddr,
+        public struct_sockaddr_in_ptr|struct_sockaddr_in6_ptr $sockaddr,
         public quiche_conn_ptr $connection,
-        // TODO: psalm: Umm, why can't it ever be null? According to type it's null or string, right?
-        /** @psalm-var (IsClient is true ? null : string) */
-        public ?string $dcid_string = null
+        public readonly ?string $dcid_string = null,
     ) {
         $acceptor = &$this->acceptor;
         $this->cancel = static function (CancelledException $exception) use (&$acceptor): void {
             $acceptor?->throw($exception);
             $acceptor = null;
         };
-        // TODO: psalm: Umm, why can't it ever be null? According to type it's null or string, right?
-        if ($dcid_string !== null) { // if is server
+
+        if ($this->dcid_string !== null) { // if is server
             ++$this->unidirectionalStreamId;
             ++$this->bidirectionalStreamId;
         }
+
         if (!$state->config->hasBidirectionalStreams()) {
             unset($this->bidirectionalStreamId);
         }
-        /** @psalm-suppress RedundantCondition */
-        if (isset($state->keylogPattern)) {
+
+        if ($state->keylogPattern) {
             $path = \str_replace("%h", $address->toString(), $state->keylogPattern);
             if (!QuicheState::$quiche->quiche_conn_set_keylog_path($connection, $path)) {
-                EventLoop::queue(fn () => throw new \Exception("Could not successfully enable keylog on the QUIC connection."));
+                EventLoop::queue(
+                    fn () => throw new \Exception("Could not successfully enable keylog on the QUIC connection.")
+                );
             }
         }
     }
 
-    public function close(int | QuicError $error = QuicError::NO_ERROR, string $reason = ""): void
+    public function close(int|QuicError $error = QuicError::NO_ERROR, string $reason = ""): void
     {
         if (!$this->closed) {
             $applicationError = \is_int($error);
@@ -125,7 +146,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
 
     public function onClose(Closure $onClose): void
     {
-        ($this->onClose ??= new DeferredFuture)->getFuture()->finally($onClose);
+        ($this->onClose ??= new DeferredFuture())->getFuture()->finally($onClose);
     }
 
     public function reference(): void
@@ -157,11 +178,11 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     public function accept(?Cancellation $cancellation = null): ?QuicSocket
     {
         if ($this->closed) {
-            throw new ClosedException;
+            throw new ClosedException();
         }
 
         if (isset($this->acceptor)) {
-            throw new PendingAcceptError;
+            throw new PendingAcceptError();
         }
 
         if ($this->streamQueue) {
@@ -215,27 +236,24 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
             return $config->getBindContext();
         }
         // We have to return something if it's a client, because of the interface.
-        return new BindContext;
+        return new BindContext();
     }
 
     public function notifyReadable(int $stream): void
     {
         EventLoop::defer(function () use ($stream) {
-            if (!isset($this->streams[$stream])) {
-                if (isset($this->acceptor)) {
-                    $socket = new QuicheSocket($this, $stream);
-                    $this->streams[$stream] = \WeakReference::create($socket);
-                    $socket->readPending = true;
-                    $this->acceptor->resume($socket);
-                } else {
-                    $this->streamQueue[$stream] = null;
-                }
+            if (isset($this->streams[$stream])) {
+                $this->streams[$stream]->get()?->notifyReadable();
+                return;
+            }
+
+            if (isset($this->acceptor)) {
+                $socket = new QuicheSocket($this, $stream);
+                $this->streams[$stream] = \WeakReference::create($socket);
+                $socket->readPending = true;
+                $this->acceptor->resume($socket);
             } else {
-                /**
-                 * @noinspection NullPointerExceptionInspection
-                 * @psalm-suppress PossiblyNullReference
-                 */
-                $this->streams[$stream]->get()->notifyReadable();
+                $this->streamQueue[$stream] = null;
             }
         });
     }
@@ -243,11 +261,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     public function notifyWritable(int $stream): void
     {
         if (isset($this->streams[$stream])) {
-            /**
-             * @noinspection NullPointerExceptionInspection
-             * @psalm-suppress PossiblyNullReference
-             */
-            $this->streams[$stream]->get()->notifyWritable();
+            $this->streams[$stream]->get()?->notifyWritable();
         }
     }
 
@@ -256,12 +270,22 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         $this->cancelTimer();
         if (!$this->closed) {
             $this->clean();
-            // https://github.com/vimeo/psalm/issues/10551
-            /** @psalm-suppress UndefinedVariable */
-            if (QuicheState::$quiche->quiche_conn_peer_error($this->connection, [&$is_app], [&$error_code], [&$reason], [&$reason_len])) {
-                $this->error = new QuicConnectionError($is_app ? null : QuicError::tryFrom($error_code), $error_code, $reason->toString($reason_len));
+            /** @psalm-suppress UndefinedVariable https://github.com/vimeo/psalm/issues/10551 */
+            if (QuicheState::$quiche->quiche_conn_peer_error(
+                $this->connection,
+                [&$is_app],
+                [&$error_code],
+                [&$reason],
+                [&$reason_len],
+            )) {
+                $this->error = new QuicConnectionError(
+                    $is_app ? null : QuicError::tryFrom($error_code),
+                    $error_code,
+                    $reason->toString($reason_len)
+                );
             }
         }
+
         QuicheState::$quiche->quiche_conn_free($this->connection);
         unset($this->connection, $this->socket);
     }
@@ -298,7 +322,12 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         if ($close !== $socket->closed) {
             /** @psalm-suppress RedundantCondition */
             if (!$this->closed && isset($socket->id)) {
-                QuicheState::$quiche->quiche_conn_stream_shutdown($this->connection, $socket->id, (int) $writing, $reason);
+                QuicheState::$quiche->quiche_conn_stream_shutdown(
+                    $this->connection,
+                    $socket->id,
+                    (int) $writing,
+                    $reason,
+                );
                 $this->state->checkSend($this);
             }
             $socket->closed = $close;
@@ -307,8 +336,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
                 $socket->reader?->resume();
                 $socket->reader = null;
                 if ($socket->onClose?->isComplete() === false) {
-                    // https://github.com/vimeo/psalm/issues/10554
-                    /** @psalm-suppress NullReference */
+                    /** @psalm-suppress NullReference https://github.com/vimeo/psalm/issues/10554 */
                     $socket->onClose->complete();
                 }
             } elseif (!$socket->writes->isEmpty()) {
@@ -319,7 +347,6 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
                     $suspension?->throw($exception);
                 } while (!$socket->writes->isEmpty());
             }
-
         }
     }
 
@@ -371,10 +398,14 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
 
         if ($this->datagramSuspension) {
-            throw new PendingReceiveError;
+            throw new PendingReceiveError();
         }
 
-        if (0 < $size = QuicheState::$quiche->quiche_conn_dgram_recv($this->connection, QuicheState::$sendBuffer, QuicheState::SEND_BUFFER_SIZE)) {
+        if (0 < $size = QuicheState::$quiche->quiche_conn_dgram_recv(
+                $this->connection,
+                QuicheState::$sendBuffer,
+                QuicheState::SEND_BUFFER_SIZE,
+            )) {
             return QuicheState::$sendBuffer->toString($size);
         }
 
@@ -394,8 +425,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
             if ($this->referenced) {
                 $this->state->unreference();
             }
-            // https://github.com/vimeo/psalm/issues/10553
-            /** @psalm-suppress PossiblyNullArgument */
+            /** @psalm-suppress PossiblyNullArgument https://github.com/vimeo/psalm/issues/10553 */
             $cancellation?->unsubscribe($id);
         }
     }
@@ -429,7 +459,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     public function trySend(string $data): bool
     {
         if ($this->closed) {
-            throw new ClosedException;
+            throw new ClosedException();
         }
 
         $ret = QuicheState::$quiche->quiche_conn_dgram_send($this->connection, $data, \strlen($data));
@@ -439,7 +469,9 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
             }
 
             if ($ret === Quiche::QUICHE_ERR_INVALID_STATE) {
-                throw new SocketException("Could not send datagram on connection where no datagrams are accepted by the peer");
+                throw new SocketException(
+                    "Could not send datagram on connection where no datagrams are accepted by the peer"
+                );
             }
 
             if ($ret === Quiche::QUICHE_ERR_BUFFER_TOO_SHORT) {
@@ -465,16 +497,14 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
 
         $tlsInfo = [];
-        // https://github.com/vimeo/psalm/issues/10551
-        /** @psalm-suppress UndefinedVariable */
+        /** @psalm-suppress UndefinedVariable https://github.com/vimeo/psalm/issues/10551 */
         QuicheState::$quiche->quiche_conn_peer_cert($this->connection, [&$buf], [&$len]);
         if ($len > 0) {
             $tlsInfo["peer_certificate"] = Certificate::derToPem($buf->toString($len));
         }
         // TODO peer_ca_certs, not exposed in quiche FFI. Add upstream.
 
-        // https://github.com/vimeo/psalm/issues/10551
-        /** @psalm-suppress UndefinedVariable */
+        /** @psalm-suppress UndefinedVariable https://github.com/vimeo/psalm/issues/10551 */
         QuicheState::$quiche->quiche_conn_application_proto($this->connection, [&$buf], [&$len]);
         $cryptoInfo = [
             "alpn_protocol" => $buf->toString($len),
@@ -524,7 +554,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     public function ping(): void
     {
         if ($this->closed) {
-            throw new ClosedException;
+            throw new ClosedException();
         }
 
         QuicheState::$quiche->quiche_conn_send_ack_eliciting($this->connection);
