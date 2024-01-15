@@ -4,41 +4,41 @@ namespace Amp\Quic\Quiche;
 
 use Amp\Socket\InternetAddress;
 
-class QuichePathStats
+final class QuichePathStats
 {
     public function __construct(
         /** The local address of the path. */
-        public InternetAddress $localAddr,
+        public readonly InternetAddress $localAddr,
         /** The peer address of the path. */
-        public InternetAddress $peerAddr,
+        public readonly InternetAddress $peerAddr,
         /** The path validation state. */
-        public int $validationState,
+        public readonly int $validationState,
         /** Whether the path is marked as active. */
-        public bool $active,
+        public readonly bool $active,
         /** The number of QUIC packets received. */
-        public int $recv,
+        public readonly int $recv,
         /** The number of QUIC packets sent. */
-        public int $sent,
+        public readonly int $sent,
         /** The number of QUIC packets that were lost. */
-        public int $lost,
+        public readonly int $lost,
         /** The number of sent QUIC packets with retransmitted data. */
-        public int $retrans,
+        public readonly int $retrans,
         /** The estimated round-trip time of the connection in seconds. */
-        public float $rtt,
+        public readonly float $rtt,
         /** The size of the connection’s congestion window in bytes. */
-        public int $cwnd,
+        public readonly int $cwnd,
         /** The number of sent bytes. */
-        public int $sentBytes,
+        public readonly int $sentBytes,
         /** The number of received bytes. */
-        public int $recvBytes,
+        public readonly int $recvBytes,
         /** The number of bytes lost. */
-        public int $lostBytes,
+        public readonly int $lostBytes,
         /** The number of stream bytes retransmitted. */
-        public int $streamRetransBytes,
+        public readonly int $streamRetransBytes,
         /** The current PMTU for the connection. */
-        public int $pmtu,
+        public readonly int $pmtu,
         /** The most recent data delivery rate estimate in bytes/s. */
-        public int $deliveryRate,
+        public readonly int $deliveryRate,
     ) {
     }
 }

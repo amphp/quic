@@ -2,9 +2,12 @@
 
 namespace Amp\Quic;
 
-class QuicConnectionError
+final class QuicConnectionError
 {
-    public function __construct(public ?QuicError $error, public int $code, public string $reason)
-    {
+    public function __construct(
+        public readonly ?QuicError $error,
+        public readonly int $code,
+        public readonly string $reason,
+    ) {
     }
 }

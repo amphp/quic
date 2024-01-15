@@ -2,35 +2,35 @@
 
 namespace Amp\Quic\Quiche;
 
-class QuicheStats
+final class QuicheStats
 {
     public function __construct(
         /** The number of QUIC packets received. */
-        public int $recv,
+        public readonly int $recv,
         /** The number of QUIC packets sent. */
-        public int $sent,
+        public readonly int $sent,
         /** The number of QUIC packets that were lost. */
-        public int $lost,
+        public readonly int $lost,
         /** The number of sent QUIC packets with retransmitted data. */
-        public int $retrans,
+        public readonly int $retrans,
         /** The number of sent bytes. */
-        public int $sentBytes,
+        public readonly int $sentBytes,
         /** The number of received bytes. */
-        public int $recvBytes,
+        public readonly int $recvBytes,
         /** The number of bytes sent lost. */
-        public int $lostBytes,
+        public readonly int $lostBytes,
         /** The number of stream bytes retransmitted. */
-        public int $streamRetransBytes,
-        /** @var QuichePathStats[] The number of known paths for the connection. */
-        public array $paths,
+        public readonly int $streamRetransBytes,
+        /** @var list<QuichePathStats> The number of known paths for the connection. */
+        public readonly array $paths,
         /** The number of streams reset by local. */
-        public int $resetStreamCountLocal,
+        public readonly int $resetStreamCountLocal,
         /** The number of streams stopped by local. */
-        public int $stoppedStreamCountLocal,
+        public readonly int $stoppedStreamCountLocal,
         /** The number of streams reset by remote. */
-        public int $resetStreamCountRemote,
+        public readonly int $resetStreamCountRemote,
         /** The number of streams stopped by remote. */
-        public int $stoppedStreamCountRemote,
+        public readonly int $stoppedStreamCountRemote,
     ) {
     }
 }

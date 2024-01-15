@@ -49,7 +49,7 @@ function connect(
     }
 
     /**
-     * @psalm-var non-empty-array<string> $builtUris
+     * @var non-empty-array<string> $builtUris
      * @psalm-suppress InvalidScope https://github.com/vimeo/psalm/issues/913
      */
     $builtUris = (fn () => $this->resolve(

@@ -21,7 +21,7 @@ use Revolt\EventLoop;
  * @psalm-import-type QuicheClientConnection from QuicheConnection
  * @extends QuicheState<QuicClientConfig>
  */
-class QuicheClientState extends QuicheState
+final class QuicheClientState extends QuicheState
 {
     /** @var \WeakReference<QuicheClientConnection>|null */
     private ?\WeakReference $connection = null; // avoid circular reference

@@ -23,7 +23,7 @@ use Revolt\EventLoop\Suspension;
  * @psalm-import-type QuicheServerConnection from QuicheConnection
  * @extends QuicheState<QuicServerConfig>
  */
-class QuicheServerState extends QuicheState
+final class QuicheServerState extends QuicheState
 {
     public ?Suspension $acceptor = null;
 

@@ -7,7 +7,7 @@ use Amp\Socket\ConnectException;
 use Amp\Socket\InternetAddress;
 use Amp\Socket\SocketException;
 
-class QuicheDriver extends QuicDriver
+final class QuicheDriver extends QuicDriver
 {
     public function connect(InternetAddress $address, QuicClientConfig $config, ?Cancellation $cancellation = null): QuicConnection
     {
