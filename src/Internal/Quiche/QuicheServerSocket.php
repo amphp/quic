@@ -1,11 +1,10 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Quic\Internal\Quiche;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\DeferredCancellation;
-use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\Quic\QuicServerConfig;
 use Amp\Quic\QuicServerSocket;

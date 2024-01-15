@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Quic\Internal\Quiche;
 
@@ -114,7 +114,8 @@ abstract class QuicheState
         $this->writeIds[(int) $socket] = $writeId;
     }
 
-    protected static function sockaddrFromInternetAddress(InternetAddress $localAddress
+    protected static function sockaddrFromInternetAddress(
+        InternetAddress $localAddress
     ): struct_sockaddr_in_ptr|struct_sockaddr_in6_ptr {
         return self::toSockaddr(
             $localAddress->getAddressBytes(),
@@ -284,11 +285,11 @@ abstract class QuicheState
     protected function trySendConnection(QuicheConnection $quicConnection): int
     {
         while (0 < $size = self::$quiche->quiche_conn_send(
-                $quicConnection->connection,
-                self::$sendBuffer,
-                self::SEND_BUFFER_SIZE,
-                self::$sendInfo,
-            )
+            $quicConnection->connection,
+            self::$sendBuffer,
+            self::SEND_BUFFER_SIZE,
+            self::$sendInfo,
+        )
         ) {
             $buf = self::$sendBuffer->toString($size);
             // TODO: Use self::$sendInfo->at

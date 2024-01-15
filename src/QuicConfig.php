@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Quic;
 
@@ -15,7 +15,7 @@ abstract class QuicConfig
 
     /**
      * 100 streams seems to generally be a reasonable limit - and it's the lower recommended bound for HTTP/3 streams
-     * (RFC 9114 Section 6.1)
+     * (RFC 9114 Section 6.1).
      */
     protected int $maxBidirectionalStreams = 100; //
 

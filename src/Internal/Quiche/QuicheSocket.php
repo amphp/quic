@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Quic\Internal\Quiche;
 
@@ -458,7 +458,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
         );
         $this->connection->state->checkSend($this->connection);
         if ($received >= -1) {
-            $this->eofReached = $fin;
+            $this->eofReached = (bool) $fin;
             if ($received > 0) {
                 return self::$buffer->toString($received);
             }

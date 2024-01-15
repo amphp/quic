@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Quic\Internal\Quiche;
 
@@ -131,18 +131,18 @@ final class QuicheServerState extends QuicheState
             $token_len = 128;
             /** @psalm-suppress UndefinedVariable https://github.com/vimeo/psalm/issues/10551 */
             if (0 > $success = self::$quiche->quiche_header_info(
-                    $buf,
-                    \strlen($buf),
-                    self::LOCAL_CONN_ID_LEN,
-                    [&$version],
-                    [&$type],
-                    $scid,
-                    [&$scid_len],
-                    $dcid,
-                    [&$dcid_len],
-                    $token,
-                    [&$token_len]
-                )) {
+                $buf,
+                \strlen($buf),
+                self::LOCAL_CONN_ID_LEN,
+                [&$version],
+                [&$type],
+                $scid,
+                [&$scid_len],
+                $dcid,
+                [&$dcid_len],
+                $token,
+                [&$token_len],
+            )) {
                 // error, log it? where to? Maybe take a logger?
                 // user_error("Failed quiche_header_info: $success");
                 return;

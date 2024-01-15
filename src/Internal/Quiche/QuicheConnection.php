@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Quic\Internal\Quiche;
 
@@ -406,10 +406,10 @@ final class QuicheConnection implements QuicConnection
         }
 
         if (0 < $size = QuicheState::$quiche->quiche_conn_dgram_recv(
-                $this->connection,
-                QuicheState::$sendBuffer,
-                QuicheState::SEND_BUFFER_SIZE,
-            )) {
+            $this->connection,
+            QuicheState::$sendBuffer,
+            QuicheState::SEND_BUFFER_SIZE,
+        )) {
             return QuicheState::$sendBuffer->toString($size);
         }
 
@@ -598,7 +598,7 @@ final class QuicheConnection implements QuicConnection
                 localAddr: QuicheState::fromSockaddr($ffiPath->local_addr),
                 peerAddr: QuicheState::fromSockaddr($ffiPath->peer_addr),
                 validationState: $ffiPath->validation_state,
-                active: $ffiPath->active,
+                active: (bool) $ffiPath->active,
                 recv: $ffiPath->recv,
                 sent: $ffiPath->sent,
                 lost: $ffiPath->lost,

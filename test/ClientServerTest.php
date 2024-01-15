@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 // Tests certificate generation:
 // openssl genrsa -out ca.pem 4096
