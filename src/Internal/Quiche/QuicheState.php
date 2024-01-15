@@ -19,7 +19,7 @@ use Amp\Socket\InternetAddressVersion;
 use Revolt\EventLoop;
 
 /**
- * @template TConfigType of QuicConfig
+ * @template TConfig of QuicConfig
  */
 abstract class QuicheState
 {
@@ -47,7 +47,7 @@ abstract class QuicheState
 
     public bool $freed = false;
 
-    /** @var array<int, \SplObjectStorage<QuicheConnection<TConfigType>, string>> */
+    /** @var array<int, \SplObjectStorage<QuicheConnection<TConfig>, string>> */
     public array $checkWrites = [];
 
     public const SEND_BUFFER_SIZE = 65535;
@@ -62,7 +62,7 @@ abstract class QuicheState
     public readonly ?string $keylogPattern;
 
     /**
-     * @param TConfigType $config
+     * @param TConfig $config
      */
     protected function __construct(
         public readonly QuicConfig $config
@@ -126,7 +126,7 @@ abstract class QuicheState
     }
 
     /**
-     * @param TConfigType $config
+     * @param TConfig $config
      */
     private function getConfig(QuicConfig $config): quiche_config_ptr
     {
@@ -149,7 +149,7 @@ abstract class QuicheState
     }
 
     /**
-     * @param TConfigType $config
+     * @param TConfig $config
      */
     protected function applyConfig(QuicConfig $config): quiche_config_ptr
     {
@@ -282,7 +282,7 @@ abstract class QuicheState
             === $sin6->sin6_port;
     }
 
-    /** @param QuicheConnection<TConfigType> $quicConnection */
+    /** @param QuicheConnection<TConfig> $quicConnection */
     protected function trySendConnection(QuicheConnection $quicConnection): int
     {
         while (0 < $size = self::$quiche->quiche_conn_send(
@@ -329,7 +329,7 @@ abstract class QuicheState
         return $size;
     }
 
-    /** @param QuicheConnection<TConfigType> $quicConnection */
+    /** @param QuicheConnection<TConfig> $quicConnection */
     private function checkWritable(QuicheConnection $quicConnection): void
     {
         while (0 <= $stream = self::$quiche->quiche_conn_stream_writable_next($quicConnection->connection)) {
@@ -350,7 +350,7 @@ abstract class QuicheState
         }
     }
 
-    /** @param QuicheConnection<TConfigType> $quicConnection */
+    /** @param QuicheConnection<TConfig> $quicConnection */
     public function checkReceive(QuicheConnection $quicConnection): bool
     {
         $conn = $quicConnection->connection;
@@ -381,7 +381,7 @@ abstract class QuicheState
         return true;
     }
 
-    /** @param QuicheConnection<TConfigType> $connection */
+    /** @param QuicheConnection<TConfig> $connection */
     public function signalConnectionClosed(QuicheConnection $connection): void
     {
         $connection->notifyClosed();
@@ -391,7 +391,7 @@ abstract class QuicheState
      * Always called if connection specific timeouts expire, new packets for the connection or a stream are received or
      * the state of the connection has changed.
      *
-     * @param QuicheConnection<TConfigType> $quicConnection
+     * @param QuicheConnection<TConfig> $quicConnection
      */
     public function checkSend(QuicheConnection $quicConnection): void
     {
@@ -407,7 +407,7 @@ abstract class QuicheState
      * checkSend may be called often, basically after every single action, do a queued function to avoid checking too
      * often.
      *
-     * @param QuicheConnection<TConfigType> $quicConnection
+     * @param QuicheConnection<TConfig> $quicConnection
      */
     private function doCheckSend(QuicheConnection $quicConnection): void
     {
@@ -448,7 +448,7 @@ abstract class QuicheState
                     $quicConnection->nextTimer = $newTime;
                     $quicConnectionWeak = \WeakReference::create($quicConnection);
                     $quicConnection->timer = EventLoop::delay($timeout, function () use ($quicConnectionWeak) {
-                        /** @var QuicheConnection<TConfigType> $quicConnection */
+                        /** @var QuicheConnection<TConfig> $quicConnection */
                         $quicConnection = $quicConnectionWeak->get();
                         self::$quiche->quiche_conn_on_timeout($quicConnection->connection);
                         $quicConnection->nextTimer = 0;
@@ -460,7 +460,7 @@ abstract class QuicheState
         }
     }
 
-    /** @param QuicheConnection<TConfigType> $quicConnection */
+    /** @param QuicheConnection<TConfig> $quicConnection */
     public function closeConnection(
         QuicheConnection $quicConnection,
         bool $applicationError,

@@ -39,7 +39,7 @@ use Revolt\EventLoop\Suspension;
  * socket, e.g. when a peer sends from another socket. For example, when listening on :: and 0.0.0.0, a peer may
  * transition at any time between the IPv4 and IPv6. At that point the socket on the connection will also change.
  *
- * @template-covariant TConfigType of QuicConfig
+ * @template-covariant TConfig of QuicConfig
  *
  * @psalm-type QuicheClientConnection = QuicheConnection<QuicClientConfig>
  * @psalm-type QuicheServerConnection = QuicheConnection<QuicServerConfig>
@@ -88,8 +88,8 @@ final class QuicheConnection implements QuicConnection
     public int $pingInsertionTime = -1;
 
     /**
-     * @param QuicheState<TConfigType> $state
-     * @param (TConfigType is QuicServerConfig ? string : null) $dcid_string
+     * @param QuicheState<TConfig> $state
+     * @param (TConfig is QuicServerConfig ? string : null) $dcid_string
      */
     public function __construct(
         public readonly QuicheState $state,
