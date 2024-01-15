@@ -85,7 +85,17 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     public function getId(): int
     {
-        $this->id ??= $this->connection->allocStreamId($this);
+        return $this->id ?? $this->allocStreamId();
+    }
+
+    /** @psalm-assert int $this->id */
+    private function allocStreamId(): int
+    {
+        $this->id = $this->connection->allocStreamId($this);
+
+        if ($this->priority !== 127 || !$this->incremental) {
+            $this->updatePriority();
+        }
 
         return $this->id;
     }
@@ -143,7 +153,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
                 return null;
             }
         } elseif ($this->id === null) {
-            $this->id = $this->connection->allocStreamId($this);
+            $this->allocStreamId();
         }
 
         $id = $cancellation?->subscribe($this->cancel);
@@ -207,7 +217,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
                     throw new ClosedException("The stream was closed");
                 }
 
-                $this->id = $this->connection->allocStreamId($this);
+                $this->allocStreamId();
             }
 
             $size = \strlen($bytes);
@@ -287,7 +297,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     public function endReceiving(int $errorcode = 0): void
     {
         if ($errorcode && $this->id === null) {
-            $this->id = $this->connection->allocStreamId($this);
+            $this->allocStreamId();
         }
 
         $this->connection->shutdownStream($this, false, $errorcode);
@@ -401,17 +411,24 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
             return;
         }
 
-        if ($this->id !== null) {
-            QuicheState::$quiche->quiche_conn_stream_priority(
-                $this->connection->connection,
-                $this->id,
-                $priority,
-                (int) $incremental
-            );
-        }
-
         $this->priority = $priority;
         $this->incremental = $incremental;
+
+        $this->updatePriority();
+    }
+
+    private function updatePriority(): void
+    {
+        if ($this->id === null) {
+            return;
+        }
+
+        QuicheState::$quiche->quiche_conn_stream_priority(
+            $this->connection->connection,
+            $this->id,
+            $this->priority,
+            (int) $this->incremental,
+        );
     }
 
     private function doRead(): ?string

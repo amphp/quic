@@ -382,11 +382,8 @@ final class QuicheConnection implements QuicConnection
         } else {
             $id = $this->bidirectionalStreamId += 4;
         }
-        $this->streams[$id] = \WeakReference::create($socket);
 
-        if ($socket->priority !== 127 || !$socket->incremental) {
-            $socket->setPriority($socket->priority, $socket->incremental);
-        }
+        $this->streams[$id] = \WeakReference::create($socket);
 
         return $id;
     }
