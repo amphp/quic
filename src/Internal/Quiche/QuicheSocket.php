@@ -27,11 +27,15 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 {
     use ReadableStreamIteratorAggregate;
 
+    private static uint8_t_ptr $buffer;
+
+    private static int $bufferSize = 0;
+
     public const DEFAULT_CHUNK_SIZE = ReadableResourceStream::DEFAULT_CHUNK_SIZE;
 
     private bool $referenced = true;
 
-    /** @psalm-var positive-int */
+    /** @var positive-int */
     private int $chunkSize = self::DEFAULT_CHUNK_SIZE;
 
     public int $closed = 0;
@@ -42,11 +46,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     public const UNWRITABLE = 1;
     public const CLOSED = self::UNWRITABLE | self::UNREADABLE;
 
-    private static uint8_t_ptr $buffer;
-
-    private static int $bufferSize = 0;
-
-    private int $currentReadSize;
+    private int $currentReadSize = self::DEFAULT_CHUNK_SIZE;
 
     public bool $readPending = false;
 
@@ -59,15 +59,15 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     private readonly \Closure $cancel;
 
     /** @var \SplQueue<array{string, Suspension|null}> */
-    public \SplQueue $writes;
+    public readonly \SplQueue $writes;
 
-    public int $id;
+    public ?int $id = null;
 
     public int $priority = 127;
 
     public bool $incremental = true;
 
-    public function __construct(private QuicheConnection $connection, int $id = null)
+    public function __construct(private readonly QuicheConnection $connection, int $id = null)
     {
         $suspension = &$this->reader;
         $this->cancel = static function (CancelledException $exception) use (&$suspension): void {
@@ -85,9 +85,8 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     public function getId(): int
     {
-        if (!isset($this->id)) {
-            $this->connection->allocStreamId($this);
-        }
+        $this->id ??= $this->connection->allocStreamId($this);
+
         return $this->id;
     }
 
@@ -113,12 +112,14 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
         throw new StreamException("Cannot disable TLS on a QUIC connection");
     }
 
-    /** @psalm-suppress DocblockTypeContradiction */
     public function read(?Cancellation $cancellation = null, ?int $limit = null): ?string
     {
         if ($limit === null) {
             $limit = $this->chunkSize;
-        } elseif ($limit <= 0) {
+        }
+
+        /** @psalm-suppress DocblockTypeContradiction */
+        if ($limit <= 0) {
             throw new \ValueError('The length limit must be a positive integer, got ' . $limit);
         }
 
@@ -141,8 +142,8 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
             if ($this->eofReached) {
                 return null;
             }
-        } elseif (!isset($this->id)) {
-            $this->connection->allocStreamId($this);
+        } elseif ($this->id === null) {
+            $this->id = $this->connection->allocStreamId($this);
         }
 
         $id = $cancellation?->subscribe($this->cancel);
@@ -166,6 +167,8 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     private function writeChunk(string $bytes, bool $fin = false): int
     {
+        \assert($this->id !== null);
+
         $written = QuicheState::$quiche->quiche_conn_stream_send(
             $this->connection->connection,
             $this->id,
@@ -198,13 +201,13 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
             }
             $this->writes->push([$lastChunk, $suspension = EventLoop::getSuspension()]);
         } else {
-            if (!isset($this->id)) {
+            if ($this->id === null) {
                 /** @psalm-suppress TypeDoesNotContainType */
                 if (!isset($this->connection->connection)) {
                     throw new ClosedException("The stream was closed");
                 }
 
-                $this->connection->allocStreamId($this);
+                $this->id = $this->connection->allocStreamId($this);
             }
 
             $size = \strlen($bytes);
@@ -268,7 +271,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
             return;
         }
 
-        if ($this->writes->isEmpty() && isset($this->id)) {
+        if ($this->writes->isEmpty() && $this->id !== null) {
             QuicheState::$quiche->quiche_conn_stream_send($this->connection->connection, $this->id, null, 0, 1);
             $this->connection->state->checkSend($this->connection);
         }
@@ -283,9 +286,10 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     public function endReceiving(int $errorcode = 0): void
     {
-        if ($errorcode && !isset($this->id)) {
-            $this->connection->allocStreamId($this);
+        if ($errorcode && $this->id === null) {
+            $this->id = $this->connection->allocStreamId($this);
         }
+
         $this->connection->shutdownStream($this, false, $errorcode);
     }
 
@@ -397,7 +401,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
             return;
         }
 
-        if (isset($this->id)) {
+        if ($this->id !== null) {
             QuicheState::$quiche->quiche_conn_stream_priority(
                 $this->connection->connection,
                 $this->id,
@@ -420,6 +424,8 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
             }
             return null;
         }
+
+        \assert($this->id !== null);
 
         /** @psalm-suppress UndefinedVariable https://github.com/vimeo/psalm/issues/10551 */
         $received = QuicheState::$quiche->quiche_conn_stream_recv(

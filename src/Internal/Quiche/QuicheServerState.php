@@ -10,7 +10,6 @@ use Amp\Quic\Bindings\struct_sockaddr_in6_ptr;
 use Amp\Quic\Bindings\struct_sockaddr_in_ptr;
 use Amp\Quic\Bindings\struct_sockaddr_ptr;
 use Amp\Quic\Bindings\uint8_t_ptr;
-use Amp\Quic\QuicClientConfig;
 use Amp\Quic\QuicConfig;
 use Amp\Quic\QuicError;
 use Amp\Quic\QuicServerConfig;
@@ -58,7 +57,7 @@ class QuicheServerState extends QuicheState
      */
     private readonly ?\SplPriorityQueue $pingQueue;
 
-    private string $pingTimerId;
+    private ?string $pingTimerId = null;
 
     /** @param resource[] $sockets */
     public function __construct(array $sockets, QuicServerConfig $config)
@@ -237,8 +236,8 @@ class QuicheServerState extends QuicheState
                     : $quicConnectionWeak->get();
             }
             /**
-             * @psalm-var QuicheServerConnection $quicConnection
-             * @psalm-var \WeakReference<QuicheServerConnection> $quicConnectionWeak
+             * @var QuicheServerConnection $quicConnection
+             * @var \WeakReference<QuicheServerConnection> $quicConnectionWeak
              */
 
             $recv_info = quiche_recv_info_ptr::array();
@@ -287,7 +286,9 @@ class QuicheServerState extends QuicheState
                         && $quicConnection->pingInsertionTime
                         < $now - $this->pingPeriod * 5e8
                     ) {
+                        \assert($this->pingTimerId !== null);
                         EventLoop::cancel($this->pingTimerId);
+
                         /** @var QuicheServerConnection $pingConnection */
                         $pingConnection = $quicConnection;
                         $pingConnectionWeak = $quicConnectionWeak;
@@ -328,8 +329,7 @@ class QuicheServerState extends QuicheState
                         continue;
                     }
                     $this->pingQueue->insert($quicConnectionWeak, -$quicConnection->pingInsertionTime);
-                    $this->pingTimerId = EventLoop::delay($delay, $this->sendPings(...));
-                    EventLoop::unreference($this->pingTimerId);
+                    $this->pingTimerId = EventLoop::unreference(EventLoop::delay($delay, $this->sendPings(...)));
                     return;
                 }
                 if (!$quicConnection->isClosed()) {
@@ -377,7 +377,8 @@ class QuicheServerState extends QuicheState
             /** @psalm-suppress NullReference */
             $this->onShutdown->complete();
         }
-        if ($this->pingQueue && !$this->pingQueue->isEmpty()) {
+
+        if ($this->pingTimerId !== null) {
             EventLoop::cancel($this->pingTimerId);
         }
     }

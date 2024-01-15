@@ -28,12 +28,6 @@
             </errorLevel>
         </UnsupportedPropertyReferenceUsage>
 
-        <PropertyNotSetInConstructor>
-            <errorLevel type="suppress">
-                <directory name="src" />
-            </errorLevel>
-        </PropertyNotSetInConstructor>
-
         <RedundantPropertyInitializationCheck>
             <errorLevel type="suppress">
                 <directory name="src" />

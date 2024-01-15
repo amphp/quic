@@ -28,10 +28,10 @@ abstract class QuicheState
     public static \WeakMap $configCache;
 
     /** @var array<int, string> */
-    protected array $readIds;
+    protected array $readIds = [];
 
     /** @var array<int, string> */
-    private array $writeIds;
+    private array $writeIds = [];
 
     public ?DeferredFuture $onClose = null;
 
@@ -47,8 +47,8 @@ abstract class QuicheState
 
     public bool $freed = false;
 
-    /** @psalm-var array<int, \SplObjectStorage<QuicheConnection<TConfigType>, string>> */
-    public array $checkWrites;
+    /** @var array<int, \SplObjectStorage<QuicheConnection<TConfigType>, string>> */
+    public array $checkWrites = [];
 
     public const SEND_BUFFER_SIZE = 65535;
 
@@ -250,7 +250,7 @@ abstract class QuicheState
             $ip = \inet_ntop(uint8_t_ptr::castFrom($sin6->sin6_addr->addr())->toString(16));
         }
 
-        /** @psalm-var int<0, 65535> $port */
+        /** @var int<0, 65535> $port */
         $port = (($port & 0xFF) << 8) | ($port >> 8); // network byte order
         return new InternetAddress($ip, $port);
     }
@@ -378,7 +378,7 @@ abstract class QuicheState
         return true;
     }
 
-    /** @psalm-param QuicheConnection<TConfigType> $connection */
+    /** @param QuicheConnection<TConfigType> $connection */
     public function signalConnectionClosed(QuicheConnection $connection): void
     {
         $connection->notifyClosed();

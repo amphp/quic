@@ -23,14 +23,14 @@ use Revolt\EventLoop;
  */
 class QuicheClientState extends QuicheState
 {
-    /** @var \WeakReference<QuicheClientConnection> */
-    private \WeakReference $connection; // avoid circular reference
+    /** @var \WeakReference<QuicheClientConnection>|null */
+    private ?\WeakReference $connection = null; // avoid circular reference
 
     /**
      * @noinspection PhpPropertyOnlyWrittenInspection
-     * @psalm-var QuicheClientConnection
+     * @var QuicheClientConnection|null
      */
-    private QuicheConnection $referenceConnectionInShutdown;
+    private ?QuicheConnection $referenceConnectionInShutdown = null;
 
     private ?EventLoop\Suspension $startSuspension = null;
 
@@ -63,12 +63,12 @@ class QuicheClientState extends QuicheState
         $recv_info->to = struct_sockaddr_ptr::castFrom($localSockaddr);
         $recv_info->to_len = Quiche::sizeof($localSockaddr[0]);
 
-        $state->startSuspension = EventLoop::getSuspension();
+        $state->startSuspension = $suspension = EventLoop::getSuspension();
 
         // defer on cancellation to avoid cancelling right during the startSuspension success, but execute at a time no microtasks are pending
         /** @psalm-suppress PossiblyNullReference */
         $cancellationId = $cancellation?->subscribe(
-            fn ($e) => EventLoop::defer(fn () => $state->startSuspension->throw($e))
+            fn ($e) => EventLoop::defer(static fn () => $suspension->throw($e))
         );
 
         /** @var struct_quiche_conn_ptr $conn */
@@ -95,7 +95,7 @@ class QuicheClientState extends QuicheState
                     }
                 } while (false !== $buf = \stream_socket_recvfrom($socket, self::MAX_DATAGRAM_SIZE));
 
-                $quicConnection = $state->connection->get();
+                $quicConnection = $state->connection?->get();
                 \assert($quicConnection !== null);
                 if ($state->checkReceive($quicConnection)) {
                     /** @psalm-suppress TypeDoesNotContainNull, RedundantCondition */
@@ -141,7 +141,7 @@ class QuicheClientState extends QuicheState
             $conn,
         );
 
-        $state->connection = \WeakReference::create($quicConnection);
+        $state->connection = $connectionRef = \WeakReference::create($quicConnection);
 
         if (-1 > $err = $state->trySendConnection($quicConnection)) {
             throw new ConnectException("Count not establish connection: $err");
@@ -165,9 +165,9 @@ class QuicheClientState extends QuicheState
         }
 
         if ($pingPeriod = $config->getPingPeriod()) {
-            $state->pingTimerId = EventLoop::repeat($pingPeriod, function () use ($state) {
-                /** @var QuicheClientConnection $quicConnection */
-                $quicConnection = $state->connection->get();
+            $state->pingTimerId = EventLoop::repeat($pingPeriod, static function () use ($connectionRef): void {
+                $quicConnection = $connectionRef->get();
+                \assert($quicConnection !== null);
                 $quicConnection->ping();
             });
             EventLoop::unreference($state->pingTimerId);
@@ -210,7 +210,7 @@ class QuicheClientState extends QuicheState
     {
         parent::free();
         $this->cancelPing();
-        unset($this->referenceConnectionInShutdown);
+        $this->referenceConnectionInShutdown = null;
     }
 
     /**

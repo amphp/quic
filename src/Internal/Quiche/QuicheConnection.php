@@ -52,7 +52,7 @@ final class QuicheConnection implements QuicConnection
 
     private bool $closed = false;
 
-    /** @psalm-var array<int, \WeakReference<QuicheSocket>> */
+    /** @var array<int, \WeakReference<QuicheSocket>> */
     private array $streams = [];
 
     public ?DeferredFuture $onClose = null;
@@ -64,7 +64,7 @@ final class QuicheConnection implements QuicConnection
 
     public float $nextTimer = 0;
 
-    public string $timer;
+    public ?string $timer = null;
 
     public int $bidirectionalStreamId = -4;
 
@@ -74,16 +74,16 @@ final class QuicheConnection implements QuicConnection
 
     private \Closure $cancel;
 
-    public ?string $establishingTimer;
+    public ?string $establishingTimer = null;
 
     public bool $queuedSend = false;
 
-    /** @psalm-var array<list{string, Suspension}> */
+    /** @var array<list{string, Suspension}> */
     public array $datagramWrites = [];
 
-    private QuicConnectionError $error;
+    private ?QuicConnectionError $error = null;
 
-    public int $lastReceiveTime;
+    public int $lastReceiveTime = 0;
 
     public int $pingInsertionTime = -1;
 
@@ -310,7 +310,7 @@ final class QuicheConnection implements QuicConnection
 
     public function cancelTimer(): void
     {
-        if ($this->nextTimer) {
+        if ($this->timer !== null) {
             $this->nextTimer = 0;
             EventLoop::cancel($this->timer);
         }
@@ -359,8 +359,7 @@ final class QuicheConnection implements QuicConnection
             $socket->end();
         }
 
-        /** @psalm-suppress all */
-        if (isset($socket->id)) {
+        if ($socket->id !== null) {
             unset($this->streams[$socket->id]);
         }
     }
@@ -376,7 +375,7 @@ final class QuicheConnection implements QuicConnection
     }
 
     /** To avoid having gaps in stream ids which we'll have to explicitly close, we opt to defer allocating stream ids until data is actually sent on a stream */
-    public function allocStreamId(QuicheSocket $socket): void
+    public function allocStreamId(QuicheSocket $socket): int
     {
         if ($socket->closed & QuicheSocket::UNREADABLE) {
             $id = $this->unidirectionalStreamId += 4;
@@ -384,11 +383,12 @@ final class QuicheConnection implements QuicConnection
             $id = $this->bidirectionalStreamId += 4;
         }
         $this->streams[$id] = \WeakReference::create($socket);
-        $socket->id = $id;
 
         if ($socket->priority !== 127 || !$socket->incremental) {
             $socket->setPriority($socket->priority, $socket->incremental);
         }
+
+        return $id;
     }
 
     public function receive(?Cancellation $cancellation = null): ?string
