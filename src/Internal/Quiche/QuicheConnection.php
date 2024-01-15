@@ -30,23 +30,27 @@ use Closure;
 use Kelunik\Certificate\Certificate;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
-use WeakReference;
 
 // Note: A QuicheConnection holds the socket it is currently "connected" to. It may be migrated any time to another socket, e.g. when a peer sends from another socket.
 // For example, when listening on :: and 0.0.0.0, a peer may transition at any time between the IPv4 and IPv6. At that point the socket on the connection will also change.
+/**
+ * @template IsClient of bool
+ * @psalm-type QuicheClientConnection = QuicheConnection<true>
+ * @psalm-type QuicheServerConnection = QuicheConnection<false>
+ */
 final class QuicheConnection implements \Amp\Quic\QuicConnection
 {
     private ?Suspension $acceptor = null;
     private bool $referenced = true;
     private bool $closed = false;
 
-    /** @var WeakReference<QuicheSocket>[] */
+    /** @psalm-var array<int, \WeakReference<QuicheSocket>> */
     private array $streams = [];
     public ?DeferredFuture $onClose = null;
 
     public ?Suspension $datagramSuspension = null;
 
-    /** @var int[] */
+    /** @var array<int, null> */
     public array $streamQueue = [];
 
     public float $nextTimer = 0;
@@ -60,22 +64,24 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     public ?string $establishingTimer;
 
     public bool $queuedSend = false;
-    /** @var array{string, Suspension|null}[] */
+    /** @psalm-var array<list{string, Suspension}> */
     public array $datagramWrites = [];
     private QuicConnectionError $error;
 
     public int $lastReceiveTime;
     public int $pingInsertionTime = -1;
 
-    /** @param $socket resource */
     public function __construct(
         public QuicheState $state,
+        /** @var resource */
         public $socket,
         public InternetAddress $localAddress,
         public struct_sockaddr_in_ptr | struct_sockaddr_in6_ptr $localSockaddr,
         public InternetAddress $address,
         public struct_sockaddr_in_ptr | struct_sockaddr_in6_ptr $sockaddr,
         public quiche_conn_ptr $connection,
+        // TODO: psalm: Umm, why can't it ever be null? According to type it's null or string, right?
+        /** @psalm-var (IsClient is true ? null : string) */
         public ?string $dcid_string = null
     ) {
         $acceptor = &$this->acceptor;
@@ -83,6 +89,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
             $acceptor?->throw($exception);
             $acceptor = null;
         };
+        // TODO: psalm: Umm, why can't it ever be null? According to type it's null or string, right?
         if ($dcid_string !== null) { // if is server
             ++$this->unidirectionalStreamId;
             ++$this->bidirectionalStreamId;
@@ -90,6 +97,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         if (!$state->config->hasBidirectionalStreams()) {
             unset($this->bidirectionalStreamId);
         }
+        /** @psalm-suppress RedundantCondition */
         if (isset($state->keylogPattern)) {
             $path = \str_replace("%h", $address->toString(), $state->keylogPattern);
             if (!QuicheState::$quiche->quiche_conn_set_keylog_path($connection, $path)) {
@@ -102,9 +110,10 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     {
         if (!$this->closed) {
             $applicationError = \is_int($error);
-            $errorCode = $applicationError ? $error : $error->value;
+            // https://github.com/vimeo/psalm/issues/10555
+            $errorCode = \is_int($error) ? $error : $error->value;
             $this->state->closeConnection($this, $applicationError, $errorCode, $reason);
-            $this->error = new QuicConnectionError($applicationError ? null : $error, $errorCode, $reason);
+            $this->error = new QuicConnectionError(\is_int($error) ? null : $error, $errorCode, $reason);
             $this->clean();
         }
     }
@@ -139,6 +148,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
     }
 
+    /** @return resource */
     public function getResource()
     {
         return $this->socket;
@@ -157,7 +167,8 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         if ($this->streamQueue) {
             $stream = \key($this->streamQueue);
             unset($this->streamQueue[$stream]);
-            $socket = $this->streams[$stream] = new QuicheSocket($this, $stream);
+            $socket = new QuicheSocket($this, $stream);
+            $this->streams[$stream] = \WeakReference::create($socket);
             $socket->readPending = true;
             return $socket;
         }
@@ -204,41 +215,49 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
             return $config->getBindContext();
         }
         // We have to return something if it's a client, because of the interface.
-        return (new BindContext)->withTlsContext($config->getTlsContext());
+        return new BindContext;
     }
 
-    public function notifyReadable(int $stream)
+    public function notifyReadable(int $stream): void
     {
         EventLoop::defer(function () use ($stream) {
             if (!isset($this->streams[$stream])) {
                 if (isset($this->acceptor)) {
                     $socket = new QuicheSocket($this, $stream);
-                    $this->streams[$stream] = WeakReference::create($socket);
+                    $this->streams[$stream] = \WeakReference::create($socket);
                     $socket->readPending = true;
                     $this->acceptor->resume($socket);
                 } else {
                     $this->streamQueue[$stream] = null;
                 }
             } else {
-                /** @noinspection NullPointerExceptionInspection */
+                /**
+                 * @noinspection NullPointerExceptionInspection
+                 * @psalm-suppress PossiblyNullReference
+                 */
                 $this->streams[$stream]->get()->notifyReadable();
             }
         });
     }
 
-    public function notifyWritable(int $stream)
+    public function notifyWritable(int $stream): void
     {
         if (isset($this->streams[$stream])) {
-            /** @noinspection NullPointerExceptionInspection */
+            /**
+             * @noinspection NullPointerExceptionInspection
+             * @psalm-suppress PossiblyNullReference
+             */
             $this->streams[$stream]->get()->notifyWritable();
         }
     }
 
-    public function notifyClosed()
+    public function notifyClosed(): void
     {
         $this->cancelTimer();
         if (!$this->closed) {
             $this->clean();
+            // https://github.com/vimeo/psalm/issues/10551
+            /** @psalm-suppress UndefinedVariable */
             if (QuicheState::$quiche->quiche_conn_peer_error($this->connection, [&$is_app], [&$error_code], [&$reason], [&$reason_len])) {
                 $this->error = new QuicConnectionError($is_app ? null : QuicError::tryFrom($error_code), $error_code, $reason->toString($reason_len));
             }
@@ -247,7 +266,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         unset($this->connection, $this->socket);
     }
 
-    private function clean()
+    private function clean(): void
     {
         $this->closed = true;
         $this->acceptor?->resume();
@@ -265,7 +284,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         $this->onClose?->complete();
     }
 
-    public function cancelTimer()
+    public function cancelTimer(): void
     {
         if ($this->nextTimer) {
             $this->nextTimer = 0;
@@ -273,12 +292,13 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
     }
 
-    public function shutdownStream(QuicheSocket $socket, bool $writing, int $reason = 0)
+    public function shutdownStream(QuicheSocket $socket, bool $writing, int $reason = 0): void
     {
         $close = $socket->closed | ($writing ? QuicheSocket::UNWRITABLE : QuicheSocket::UNREADABLE);
         if ($close !== $socket->closed) {
+            /** @psalm-suppress RedundantCondition */
             if (!$this->closed && isset($socket->id)) {
-                QuicheState::$quiche->quiche_conn_stream_shutdown($this->connection, $socket->id, $writing, $reason);
+                QuicheState::$quiche->quiche_conn_stream_shutdown($this->connection, $socket->id, (int) $writing, $reason);
                 $this->state->checkSend($this);
             }
             $socket->closed = $close;
@@ -287,6 +307,8 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
                 $socket->reader?->resume();
                 $socket->reader = null;
                 if ($socket->onClose?->isComplete() === false) {
+                    // https://github.com/vimeo/psalm/issues/10554
+                    /** @psalm-suppress NullReference */
                     $socket->onClose->complete();
                 }
             } elseif (!$socket->writes->isEmpty()) {
@@ -301,7 +323,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
     }
 
-    public function closeStream(QuicheSocket $socket, int $reason = 0, bool $hardClose = false)
+    public function closeStream(QuicheSocket $socket, int $reason = 0, bool $hardClose = false): void
     {
         $this->shutdownStream($socket, false, $reason);
         if ($hardClose) {
@@ -310,6 +332,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
             $socket->end();
         }
 
+        /** @psalm-suppress all */
         if (isset($socket->id)) {
             unset($this->streams[$socket->id]);
         }
@@ -318,24 +341,25 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
     public function openStream(): QuicheSocket
     {
         $socket = new QuicheSocket($this);
+        /** @psalm-suppress TypeDoesNotContainType */
         if (!isset($this->bidirectionalStreamId)) {
             $socket->closed = QuicheSocket::UNREADABLE;
         }
         return $socket;
     }
 
-    // To avoid having gaps in stream ids which we'll have to explicitly close, we opt to defer allocating stream ids until data is actually sent on a stream
-    public function allocStreamId(QuicheSocket $socket)
+    /** To avoid having gaps in stream ids which we'll have to explicitly close, we opt to defer allocating stream ids until data is actually sent on a stream */
+    public function allocStreamId(QuicheSocket $socket): void
     {
         if ($socket->closed & QuicheSocket::UNREADABLE) {
             $id = $this->unidirectionalStreamId += 4;
         } else {
             $id = $this->bidirectionalStreamId += 4;
         }
-        $this->streams[$id] = WeakReference::create($socket);
+        $this->streams[$id] = \WeakReference::create($socket);
         $socket->id = $id;
 
-        if (isset($socket->priority)) {
+        if ($socket->priority !== 127 || !$socket->incremental) {
             $socket->setPriority($socket->priority, $socket->incremental);
         }
     }
@@ -357,6 +381,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         $this->datagramSuspension = EventLoop::getSuspension();
 
         $id = $cancellation?->subscribe(function ($exception) {
+            \assert($this->datagramSuspension !== null);
             $this->datagramSuspension->throw($exception);
         });
 
@@ -369,6 +394,8 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
             if ($this->referenced) {
                 $this->state->unreference();
             }
+            // https://github.com/vimeo/psalm/issues/10553
+            /** @psalm-suppress PossiblyNullArgument */
             $cancellation?->unsubscribe($id);
         }
     }
@@ -438,19 +465,24 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         }
 
         $tlsInfo = [];
+        // https://github.com/vimeo/psalm/issues/10551
+        /** @psalm-suppress UndefinedVariable */
         QuicheState::$quiche->quiche_conn_peer_cert($this->connection, [&$buf], [&$len]);
         if ($len > 0) {
             $tlsInfo["peer_certificate"] = Certificate::derToPem($buf->toString($len));
         }
         // TODO peer_ca_certs, not exposed in quiche FFI. Add upstream.
 
+        // https://github.com/vimeo/psalm/issues/10551
+        /** @psalm-suppress UndefinedVariable */
         QuicheState::$quiche->quiche_conn_application_proto($this->connection, [&$buf], [&$len]);
-        $cryptoInfo["alpn_protocol"] = $buf->toString($len);
-        $cryptoInfo["protocol"] = "TLSv1.3";
-        // TODO not exposed in quiche FFI. Add upstream.
-        $cryptoInfo["cipher_name"] = "<unknown>";
-        $cryptoInfo["cipher_version"] = "<unknown>";
-        $cryptoInfo["cipher_bits"] = 128; // unknown, but we need an int
+        $cryptoInfo = [
+            "alpn_protocol" => $buf->toString($len),
+            "protocol" => "TLSv1.3",
+            "cipher_name" => "<unknown>", // TODO not exposed in quiche FFI. Add upstream.
+            "cipher_version" => "<unknown>",
+            "cipher_bits" => 128, // unknown, but we need an int
+        ];
 
         return $this->tlsInfo = TlsInfo::fromMetaData($cryptoInfo, $tlsInfo);
     }
@@ -484,7 +516,7 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         $this->close();
     }
 
-    public function handshakeTimeout()
+    public function handshakeTimeout(): void
     {
         $this->close(QuicError::CONNECTION_REFUSED, "Handshake timeout");
     }
@@ -513,8 +545,9 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         return isset($this->streams[$id]) ? $this->streams[$id]->get() : null;
     }
 
-    public function stats()
+    public function stats(): QuicheStats
     {
+        /** @psalm-suppress TypeDoesNotContainType */
         if (!isset($this->connection)) {
             throw new ClosedException("The connection was freed.");
         }
@@ -522,45 +555,45 @@ final class QuicheConnection implements \Amp\Quic\QuicConnection
         /** @var quiche_stats $ffiStats */
         QuicheState::$quiche->quiche_conn_stats($this->connection, [&$ffiStats]);
 
-        $stats = new QuicheStats;
-        $stats->recv = $ffiStats->recv;
-        $stats->sent = $ffiStats->sent;
-        $stats->lost = $ffiStats->lost;
-        $stats->retrans = $ffiStats->retrans;
-        $stats->sentBytes = $ffiStats->sent_bytes;
-        $stats->recvBytes = $ffiStats->recv_bytes;
-        $stats->lostBytes = $ffiStats->lost_bytes;
-        $stats->streamRetransBytes = $ffiStats->stream_retrans_bytes;
-        $stats->resetStreamCountLocal = $ffiStats->reset_stream_count_local;
-        $stats->stoppedStreamCountLocal = $ffiStats->stopped_stream_count_local;
-        $stats->resetStreamCountRemote = $ffiStats->reset_stream_count_remote;
-        $stats->stoppedStreamCountRemote = $ffiStats->stopped_stream_count_remote;
-
-        for ($i = 0, $paths = $ffiStats->paths_count; $i < $paths; ++$i) {
+        $paths = [];
+        for ($i = 0, $pathCount = $ffiStats->paths_count; $i < $pathCount; ++$i) {
             /** @var quiche_path_stats $ffiPath */
             QuicheState::$quiche->quiche_conn_path_stats($this->connection, $i, [&$ffiPath]);
 
-            $stats->paths[] = $path = new QuichePathStats;
-
-            $path->localAddr = QuicheState::fromSockaddr($ffiPath->local_addr);
-            $path->peerAddr = QuicheState::fromSockaddr($ffiPath->peer_addr);
-            $path->validationState = $ffiPath->validation_state;
-            $path->active = $ffiPath->active;
-            $path->recv = $ffiPath->recv;
-            $path->sent = $ffiPath->sent;
-            $path->lost = $ffiPath->lost;
-            $path->retrans = $ffiPath->retrans;
-            $path->rtt = $ffiPath->rtt;
-            $path->cwnd = $ffiPath->cwnd;
-            $path->sentBytes = $ffiPath->sent_bytes;
-            $path->recvBytes = $ffiPath->recv_bytes;
-            $path->lostBytes = $ffiPath->lost_bytes;
-            $path->streamRetransBytes = $ffiPath->stream_retrans_bytes;
-            $path->pmtu = $ffiPath->pmtu;
-            $path->deliveryRate = $ffiPath->delivery_rate;
+            $paths[] = new QuichePathStats(
+                localAddr: QuicheState::fromSockaddr($ffiPath->local_addr),
+                peerAddr: QuicheState::fromSockaddr($ffiPath->peer_addr),
+                validationState: $ffiPath->validation_state,
+                active: $ffiPath->active,
+                recv: $ffiPath->recv,
+                sent: $ffiPath->sent,
+                lost: $ffiPath->lost,
+                retrans: $ffiPath->retrans,
+                rtt: $ffiPath->rtt,
+                cwnd: $ffiPath->cwnd,
+                sentBytes: $ffiPath->sent_bytes,
+                recvBytes: $ffiPath->recv_bytes,
+                lostBytes: $ffiPath->lost_bytes,
+                streamRetransBytes: $ffiPath->stream_retrans_bytes,
+                pmtu: $ffiPath->pmtu,
+                deliveryRate: $ffiPath->delivery_rate,
+            );
         }
 
-        return $stats;
+        return new QuicheStats(
+            recv: $ffiStats->recv,
+            sent: $ffiStats->sent,
+            lost: $ffiStats->lost,
+            retrans: $ffiStats->retrans,
+            sentBytes: $ffiStats->sent_bytes,
+            recvBytes: $ffiStats->recv_bytes,
+            lostBytes: $ffiStats->lost_bytes,
+            streamRetransBytes: $ffiStats->stream_retrans_bytes,
+            paths: $paths,
+            resetStreamCountLocal: $ffiStats->reset_stream_count_local,
+            stoppedStreamCountLocal: $ffiStats->stopped_stream_count_local,
+            resetStreamCountRemote: $ffiStats->reset_stream_count_remote,
+            stoppedStreamCountRemote: $ffiStats->stopped_stream_count_remote,
+        );
     }
-
 }

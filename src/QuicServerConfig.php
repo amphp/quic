@@ -84,7 +84,9 @@ final class QuicServerConfig extends QuicConfig
 
     public function getCertificate(): Certificate
     {
-        return $this->tlsContext->getDefaultCertificate();
+        $cert = $this->tlsContext->getDefaultCertificate();
+        \assert($cert !== null);
+        return $cert;
     }
 
     public function withStatelessResetToken(string $token): self

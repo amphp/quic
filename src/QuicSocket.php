@@ -37,7 +37,7 @@ interface QuicSocket extends Socket
     public function resetSending(int $errorcode = 0): void;
 
     /**
-     * @param int $chunkSize Used for reading and writing streamed data.
+     * @param positive-int $chunkSize Used for reading and writing streamed data.
      */
     public function setChunkSize(int $chunkSize): void;
 

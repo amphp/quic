@@ -4,7 +4,6 @@ namespace Amp\Quic;
 
 use Amp\Cancellation;
 use Amp\NullCancellation;
-use Amp\Quic\Internal\Quiche\QuicheServerSocket;
 use Amp\Socket\BindContext;
 use Amp\Socket\ClientTlsContext;
 use Amp\Socket\ConnectContext;
@@ -42,6 +41,11 @@ function connect(InternetAddress|string $address, QuicClientConfig|ConnectContex
         $config = $config->withHostname($host);
     }
 
+    // https://github.com/vimeo/psalm/issues/913
+    /**
+     * @psalm-var non-empty-array<string> $builtUris
+     * @psalm-suppress InvalidScope
+     */
     $builtUris = (fn () => $this->resolve($address, $config->getConnectContext(), $cancellation ?? new NullCancellation))->call(new DnsSocketConnector);
 
     foreach ($builtUris as $builtUri) {
@@ -58,10 +62,10 @@ function connect(InternetAddress|string $address, QuicClientConfig|ConnectContex
 /**
  * @param InternetAddress|string|InternetAddress[]|string[] $addresses The addresses to listen on. Connection migration between interfaces is supported.
  * @param QuicServerConfig|ServerTlsContext|BindContext $context Configuration, which MUST include a valid TLS setup.
- * @return QuicheServerSocket Ready to accept new connections.
+ * @return QuicServerSocket Ready to accept new connections.
  * @throws \Amp\Socket\SocketException If something goes wrong...
  */
-function bind(InternetAddress|string|array $addresses, QuicServerConfig|ServerTlsContext|BindContext $context): QuicheServerSocket
+function bind(InternetAddress|string|array $addresses, QuicServerConfig|ServerTlsContext|BindContext $context): QuicServerSocket
 {
     if (!\is_array($addresses)) {
         $addresses = [$addresses];
@@ -82,5 +86,7 @@ function bind(InternetAddress|string|array $addresses, QuicServerConfig|ServerTl
         }
     }
 
+    // https://github.com/vimeo/psalm/issues/4292
+    /** @psalm-suppress InvalidArgument */
     return QuicDriver::get()->bind($addresses, $context instanceof QuicServerConfig ? $context : new QuicServerConfig($context));
 }

@@ -19,6 +19,9 @@ use Amp\Socket\TlsState;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
 
+/**
+ * @implements \IteratorAggregate<int, string>
+ */
 final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
 {
     use ReadableStreamIteratorAggregate;
@@ -26,6 +29,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
     public const DEFAULT_CHUNK_SIZE = ReadableResourceStream::DEFAULT_CHUNK_SIZE;
 
     private bool $referenced = true;
+    /** @psalm-var positive-int */
     private int $chunkSize = self::DEFAULT_CHUNK_SIZE;
     public int $closed = 0;
     public ?DeferredFuture $onClose = null;
@@ -48,8 +52,8 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
     public \SplQueue $writes;
 
     public int $id;
-    public int $priority;
-    public bool $incremental;
+    public int $priority = 127;
+    public bool $incremental = true;
 
     public function __construct(private QuicheConnection $connection, int $id = null)
     {
@@ -97,6 +101,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         throw new StreamException("Cannot disable TLS on a QUIC connection");
     }
 
+    /** @psalm-suppress DocblockTypeContradiction */
     public function read(?Cancellation $cancellation = null, ?int $limit = null): ?string
     {
         if ($limit === null) {
@@ -109,6 +114,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
             throw new PendingReadError;
         }
 
+        /** @psalm-suppress TypeDoesNotContainType */
         if (($this->closed & self::UNREADABLE) || !isset($this->connection->connection)) {
             return null; // Return null on closed stream.
         }
@@ -148,7 +154,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
 
     private function writeChunk(string $bytes, bool $fin = false): int
     {
-        $written = QuicheState::$quiche->quiche_conn_stream_send($this->connection->connection, $this->id, $bytes, \strlen($bytes), $fin);
+        $written = QuicheState::$quiche->quiche_conn_stream_send($this->connection->connection, $this->id, $bytes, \strlen($bytes), (int)$fin);
         if ($written >= 0) {
             $this->connection->state->checkSend($this->connection);
         }
@@ -175,7 +181,8 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
             $this->writes->push([$lastChunk, $suspension = EventLoop::getSuspension()]);
         } else {
             if (!isset($this->id)) {
-                if (!$this->connection->connection) {
+                /** @psalm-suppress TypeDoesNotContainType */
+                if (!isset($this->connection->connection)) {
                     throw new ClosedException("The stream was closed");
                 }
 
@@ -222,9 +229,12 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
                 }
             }
 
+            // Psalm bug: https://github.com/vimeo/psalm/issues/8991
             for ($count = \count($chunks) - 1; $i < $count; ++$i) {
+                /** @psalm-suppress InvalidArrayOffset */
                 $this->writes->push([$chunks[$i], null]);
             }
+            /** @psalm-suppress InvalidArrayOffset */
             $this->writes->push([$chunks[$i], $suspension = EventLoop::getSuspension()]);
         }
 
@@ -240,7 +250,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         }
 
         if ($this->writes->isEmpty() && isset($this->id)) {
-            QuicheState::$quiche->quiche_conn_stream_send($this->connection->connection, $this->id, null, 0, true);
+            QuicheState::$quiche->quiche_conn_stream_send($this->connection->connection, $this->id, null, 0, 1);
             $this->connection->state->checkSend($this->connection);
         }
 
@@ -338,6 +348,8 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
      */
     public function setChunkSize(int $chunkSize): void
     {
+        /** @psalm-suppress TypeDoesNotContainType */
+        /** @psalm-suppress DocblockTypeContradiction */
         if ($chunkSize <= 0) {
             throw new \ValueError('The chunk length must be a positive integer');
         }
@@ -367,7 +379,7 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
         }
 
         if (isset($this->id)) {
-            QuicheState::$quiche->quiche_conn_stream_priority($this->connection->connection, $this->id, $priority, $incremental);
+            QuicheState::$quiche->quiche_conn_stream_priority($this->connection->connection, $this->id, $priority, (int) $incremental);
         }
 
         $this->priority = $priority;
@@ -385,6 +397,8 @@ final class QuicheSocket implements \Amp\Quic\QuicSocket, \IteratorAggregate
             return null;
         }
 
+        // https://github.com/vimeo/psalm/issues/10551
+        /** @psalm-suppress UndefinedVariable */
         $received = QuicheState::$quiche->quiche_conn_stream_recv($this->connection->connection, $this->id, self::$buffer, $this->currentReadSize, [&$fin]);
         $this->connection->state->checkSend($this->connection);
         if ($received >= -1) {

@@ -3,14 +3,13 @@
 namespace Amp\Quic;
 
 use Amp\ByteStream\ClosedException;
+use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\Socket\InternetAddress;
-use Amp\Socket\PendingReceiveError;
 use Amp\Socket\ServerSocket;
 use Amp\Socket\SocketException;
 use Amp\Socket\TlsInfo;
 use Amp\Socket\TlsState;
-use Amp\Socket\UdpSocket;
 
 // TODO: Find a common interface for everything Socket-like in amp/socket, without the Readable&WritableStream interfaces.
 /**
@@ -18,7 +17,7 @@ use Amp\Socket\UdpSocket;
  * It can be used both on the server side via {@see QuicServerSocket::acceptConnection()} and the client side via {@see QuicDriver::connect()}.
  * On the server side its lifetime is not bound to the server. However, all streams created by this connection are bound to the lifetime of the connection itself.
  */
-interface QuicConnection extends UdpClient, ServerSocket
+interface QuicConnection extends UdpClient, ServerSocket, ResourceStream
 {
     /**
      * @inheritDoc
@@ -117,6 +116,7 @@ interface QuicConnection extends UdpClient, ServerSocket
 
     /**
      * Provides an implementation specific way to expose statistics about the connection.
+     * @psalm-suppress MissingReturnType
      */
     public function stats() /* : implementation defined */;
 }

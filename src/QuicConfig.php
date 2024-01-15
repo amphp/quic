@@ -23,6 +23,8 @@ abstract class QuicConfig
 
     protected function __construct()
     {
+        // https://github.com/vimeo/psalm/issues/10547
+        /** @psalm-suppress PossiblyFalsePropertyAssignmentValue */
         if ("" != $keylogFile = \getenv("SSLKEYLOGFILE")) {
             $this->keylogFile = $keylogFile;
         }

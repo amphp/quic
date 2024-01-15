@@ -46,6 +46,7 @@ interface QuicServerSocket extends ServerSocket
 
     /**
      * Gets the underlying resource.
+     * @psalm-suppress MissingReturnType
      */
     public function getResource();
 

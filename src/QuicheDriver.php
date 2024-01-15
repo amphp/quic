@@ -50,6 +50,8 @@ class QuicheDriver extends QuicDriver
                 );
             }
 
+            // https://github.com/vimeo/psalm/issues/10546
+            /** @psalm-suppress PossiblyUndefinedVariable */
             $servers[] = $server;
         }
 

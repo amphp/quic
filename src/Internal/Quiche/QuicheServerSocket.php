@@ -14,13 +14,14 @@ use Amp\Socket\InternetAddress;
 use Amp\Socket\PendingAcceptError;
 use Revolt\EventLoop;
 
+/** @psalm-import-type QuicheServerConnection from QuicheConnection */
 final class QuicheServerSocket implements QuicServerSocket
 {
     private readonly QuicheServerState $state;
     private bool $referenced = true;
     private \Closure $cancel;
 
-    /** @var QuicheConnection[] */
+    /** @var array<string, QuicheServerConnection> */
     private array $ownedConnections = [];
 
     /**
@@ -65,6 +66,7 @@ final class QuicheServerSocket implements QuicServerSocket
                         yield \Amp\async($connection->accept(...), $foundCancellation)->ignore();
                     }
                     while ($connection = $this->acceptConnection($foundCancellation)) {
+                        /** @var QuicheServerConnection $connection */
                         $key = $connection->getRemoteAddress()->toString();
                         $this->ownedConnections[$key] = $connection;
                         $connection->onClose(function () use ($key) { unset($this->ownedConnections[$key]); });
@@ -84,9 +86,12 @@ final class QuicheServerSocket implements QuicServerSocket
             $normalExit = true;
             throw $e;
         } finally {
+            // https://github.com/vimeo/psalm/issues/10553
+            /** @psalm-suppress PossiblyNullArgument */
             $cancellation?->unsubscribe($id);
             $foundCancellation->cancel();
 
+            /** @psalm-suppress InvalidArgument */
             if (!empty($normalExit)) { // catch fiber graceful exit
                 // ensure cancellations go through
                 $suspension = EventLoop::getSuspension();

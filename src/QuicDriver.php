@@ -7,9 +7,9 @@ use Amp\Socket\InternetAddress;
 
 abstract class QuicDriver
 {
-    private static QuicDriver $driver;
+    private static ?QuicDriver $driver;
 
-    public static function set(QuicDriver $driver)
+    public static function set(QuicDriver $driver): void
     {
         self::$driver = $driver;
     }
@@ -26,7 +26,7 @@ abstract class QuicDriver
     abstract public function connect(InternetAddress $address, QuicClientConfig $config, ?Cancellation $cancellation = null): QuicConnection;
 
     /**
-     * @param InternetAddress[] $addresses All addresses the server may be bound to.
+     * @param non-empty-array<InternetAddress> $addresses All addresses the server may be bound to.
      * @return QuicServerSocket Ready to receive connections.
      */
     abstract public function bind(array $addresses, QuicServerConfig $config): QuicServerSocket;
