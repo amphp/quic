@@ -297,7 +297,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     public function endReceiving(int $errorcode = 0): void
     {
-        if ($errorcode && $this->id === null) {
+        if ($errorcode && $this->id === null && ($this->closed & self::UNREADABLE) === 0) {
             $this->allocStreamId();
         }
 

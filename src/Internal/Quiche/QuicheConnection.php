@@ -66,9 +66,9 @@ final class QuicheConnection implements QuicConnection
 
     public ?string $timer = null;
 
-    public int $bidirectionalStreamId = -4;
+    private int $bidirectionalStreamId = -4;
 
-    public int $unidirectionalStreamId = -2;
+    private int $unidirectionalStreamId = -2;
 
     private ?TlsInfo $tlsInfo = null;
 
