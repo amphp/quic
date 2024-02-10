@@ -207,8 +207,18 @@ class PairConnection implements QuicConnection
             throw new PendingReceiveError;
         }
 
+        $id = $cancellation?->subscribe(function ($e) {
+            $this->datagramReceiveSuspension->throw($e);
+            $this->datagramReceiveSuspension = null;
+        });
+
         $this->datagramReceiveSuspension = EventLoop::getSuspension();
-        return $this->datagramReceiveSuspension->suspend();
+        try {
+            return $this->datagramReceiveSuspension->suspend();
+        } finally {
+            /** @psalm-suppress PossiblyNullArgument https://github.com/vimeo/psalm/issues/10553 */
+            $cancellation?->unsubscribe($id);
+        }
     }
 
     public function trySend(string $data): bool
