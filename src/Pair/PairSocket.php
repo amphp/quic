@@ -173,10 +173,8 @@ class PairSocket implements QuicSocket, \IteratorAggregate
 
         if ($this->other->writeSuspensions) {
             $suspension = \current($this->other->writeSuspensions);
-            try {
-                $suspension->resume();
-            } catch (\Throwable) {
-            }
+            $suspension->resume();
+            unset($this->other->writeSuspensions[\key($this->other->writeSuspensions)]);
         }
 
         if ($this->readQueue) {
@@ -240,11 +238,7 @@ class PairSocket implements QuicSocket, \IteratorAggregate
 
         if ($this->writeSuspensions) {
             $this->writeSuspensions[] = $suspension = EventLoop::getSuspension();
-            try {
-                $suspension->suspend();
-            } finally {
-                unset($this->writeSuspensions[\key($this->writeSuspensions)]);
-            }
+            $suspension->suspend();
         }
 
         if ($this->writeSizeBuffer === -1) {
@@ -256,30 +250,20 @@ class PairSocket implements QuicSocket, \IteratorAggregate
             }
         }
 
-        $suspensionInserted = false;
-        try {
-            foreach (\str_split($bytes, $this->chunkSize) as $chunk) {
-                while (true) {
-                    if ($this->writeSizeBuffer < \strlen($chunk)) {
-                        $immediateWrite = \substr($chunk, 0, $this->writeSizeBuffer);
-                        $chunk = \substr($chunk, $this->writeSizeBuffer);
-                        $this->directWrite($immediateWrite);
+        foreach (\str_split($bytes, $this->chunkSize) as $chunk) {
+            while (true) {
+                if ($this->writeSizeBuffer < \strlen($chunk)) {
+                    $immediateWrite = \substr($chunk, 0, $this->writeSizeBuffer);
+                    $chunk = \substr($chunk, $this->writeSizeBuffer);
+                    $this->directWrite($immediateWrite);
 
-                        if (!$suspensionInserted) {
-                            $suspensionInserted = true;
-                            $this->writeSuspensions[] = $suspension = EventLoop::getSuspension();
-                        }
-                        /** @psalm-suppress PossiblyUndefinedVariable */
-                        $suspension->suspend();
-                    } else {
-                        $this->directWrite($chunk);
-                        break;
-                    }
+                    $this->writeSuspensions[] = $suspension = EventLoop::getSuspension();
+                    /** @psalm-suppress PossiblyUndefinedVariable */
+                    $suspension->suspend();
+                } else {
+                    $this->directWrite($chunk);
+                    break;
                 }
-            }
-        } finally {
-            if ($suspensionInserted) {
-                unset($this->writeSuspensions[\key($this->writeSuspensions)]);
             }
         }
     }
@@ -316,8 +300,6 @@ class PairSocket implements QuicSocket, \IteratorAggregate
                 try {
                     $suspension->suspend();
                 } catch (ClosedException) {
-                } finally {
-                    unset($this->writeSuspensions[\key($this->writeSuspensions)]);
                 }
             }
 
@@ -341,6 +323,7 @@ class PairSocket implements QuicSocket, \IteratorAggregate
             foreach ($this->writeSuspensions as $suspension) {
                 $suspension->throw($exception);
             }
+            $this->writeSuspensions = [];
         }
     }
 
