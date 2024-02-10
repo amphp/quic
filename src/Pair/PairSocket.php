@@ -44,6 +44,9 @@ class PairSocket implements QuicSocket, \IteratorAggregate
     /** @psalm-suppress PropertyNotSetInConstructor */
     public PairSocket $other;
 
+    public int $priority = 127;
+    public bool $incremental = true;
+
     public function __construct(private PairConnection $connection)
     {
         $this->onClose = new DeferredFuture;
@@ -139,7 +142,8 @@ class PairSocket implements QuicSocket, \IteratorAggregate
 
     public function setPriority(int $priority = 127, bool $incremental = true): void
     {
-        // nothing to do here
+        $this->priority = $priority;
+        $this->incremental = $incremental;
     }
 
     public function getTlsInfo(): TlsInfo
