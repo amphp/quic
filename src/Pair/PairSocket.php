@@ -8,7 +8,6 @@ use Amp\ByteStream\ReadableStreamIteratorAggregate;
 use Amp\ByteStream\StreamException;
 use Amp\Cancellation;
 use Amp\DeferredFuture;
-use Amp\Quic\QuicConnection;
 use Amp\Quic\QuicSocket;
 use Amp\Socket\SocketAddress;
 use Amp\Socket\TlsInfo;
@@ -135,7 +134,7 @@ class PairSocket implements QuicSocket, \IteratorAggregate
         $this->chunkSize = $chunkSize;
     }
 
-    public function getConnection(): QuicConnection
+    public function getConnection(): PairConnection
     {
         return $this->connection;
     }

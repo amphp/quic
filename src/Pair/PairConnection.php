@@ -10,7 +10,6 @@ use Amp\Quic\QuicConfig;
 use Amp\Quic\QuicConnection;
 use Amp\Quic\QuicConnectionError;
 use Amp\Quic\QuicError;
-use Amp\Quic\QuicSocket;
 use Amp\Socket\BindContext;
 use Amp\Socket\InternetAddress;
 use Amp\Socket\PendingAcceptError;
@@ -112,7 +111,7 @@ class PairConnection implements QuicConnection
         $this->other->close();
     }
 
-    public function accept(?Cancellation $cancellation = null): ?QuicSocket
+    public function accept(?Cancellation $cancellation = null): ?PairSocket
     {
         if ($this->closed) {
             return null;
@@ -171,7 +170,7 @@ class PairConnection implements QuicConnection
         unset($this->openStreams[$socket->getId()]);
     }
 
-    public function openStream(): QuicSocket
+    public function openStream(): PairSocket
     {
         $a = new PairSocket($this);
         $b = new PairSocket($this->other);
@@ -290,7 +289,7 @@ class PairConnection implements QuicConnection
         return $this->closeReason ?? new QuicConnectionError(QuicError::NO_ERROR, -1, "");
     }
 
-    public function getStream(int $id): ?QuicSocket
+    public function getStream(int $id): ?PairSocket
     {
         return ($this->openStreams[$id] ?? null)?->get();
     }
