@@ -2,17 +2,17 @@
 
 namespace Amp\Quic;
 
-use Amp\Socket\InternetAddress;
+use Amp\Socket\SocketAddress;
 
 interface UdpClient extends DatagramStream
 {
     /**
-     * @return InternetAddress The local address.
+     * @return SocketAddress The local address.
      */
-    public function getLocalAddress(): InternetAddress;
+    public function getLocalAddress(): SocketAddress;
 
     /**
-     * @return InternetAddress The address of the peer.
+     * @return SocketAddress The address of the peer.
      */
-    public function getRemoteAddress(): InternetAddress;
+    public function getRemoteAddress(): SocketAddress;
 }

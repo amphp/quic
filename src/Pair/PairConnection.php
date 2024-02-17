@@ -15,6 +15,7 @@ use Amp\Socket\InternetAddress;
 use Amp\Socket\PendingAcceptError;
 use Amp\Socket\PendingReceiveError;
 use Amp\Socket\ServerTlsContext;
+use Amp\Socket\SocketAddress;
 use Amp\Socket\TlsInfo;
 use Amp\Socket\TlsState;
 use Revolt\EventLoop;
@@ -48,8 +49,8 @@ class PairConnection implements QuicConnection
 
     public BindContext $bindContext;
     public int $maxDatagramSize = 1200;
-    public InternetAddress $localAddress;
-    public InternetAddress $remoteAddress;
+    public SocketAddress $localAddress;
+    public SocketAddress $remoteAddress;
 
     /** @var array<string> */
     private array $datagramReceiveQueue = [];
@@ -185,7 +186,7 @@ class PairConnection implements QuicConnection
         return $a;
     }
 
-    public function getAddress(): InternetAddress
+    public function getAddress(): SocketAddress
     {
         return $this->getRemoteAddress();
     }
@@ -320,12 +321,12 @@ class PairConnection implements QuicConnection
         return $this->bindContext;
     }
 
-    public function getLocalAddress(): InternetAddress
+    public function getLocalAddress(): SocketAddress
     {
         return $this->localAddress;
     }
 
-    public function getRemoteAddress(): InternetAddress
+    public function getRemoteAddress(): SocketAddress
     {
         return $this->remoteAddress;
     }

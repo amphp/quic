@@ -46,6 +46,8 @@ class PairSocket implements QuicSocket, \IteratorAggregate
     public int $priority = 127;
     public bool $incremental = true;
 
+    public int $lastCloseReason = 0;
+
     public function __construct(private PairConnection $connection)
     {
         $this->onClose = new DeferredFuture;
@@ -90,6 +92,8 @@ class PairSocket implements QuicSocket, \IteratorAggregate
             return;
         }
 
+        $this->lastCloseReason = $this->other->lastCloseReason = $errorcode;
+
         $this->forceUnwritable();
         $this->other->forceUnwritable();
 
@@ -105,6 +109,8 @@ class PairSocket implements QuicSocket, \IteratorAggregate
         if ($this->closed & self::UNWRITABLE) {
             return;
         }
+
+        $this->lastCloseReason = $this->other->lastCloseReason = $errorcode;
 
         $this->forceUnwritable();
 
@@ -332,5 +338,14 @@ class PairSocket implements QuicSocket, \IteratorAggregate
             $this->connection->removeClosedStream($this);
             $this->onClose->complete();
         }
+    }
+
+    public function getCloseReason(): int
+    {
+        if (!$this->closed) {
+            throw new \Error("Can only read the close reason from a closed or half-closed stream.");
+        }
+
+        return $this->lastCloseReason;
     }
 }

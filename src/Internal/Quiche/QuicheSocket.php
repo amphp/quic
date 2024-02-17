@@ -42,6 +42,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     private int $chunkSize = self::DEFAULT_CHUNK_SIZE;
 
     public int $closed = 0;
+    private int $lastCloseReason = 0;
 
     public readonly DeferredFuture $onClose;
 
@@ -293,6 +294,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     public function resetSending(int $errorcode = 0): void
     {
         $this->connection->shutdownStream($this, true, $errorcode);
+        $this->lastCloseReason = $errorcode;
     }
 
     public function endReceiving(int $errorcode = 0): void
@@ -302,11 +304,13 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
         }
 
         $this->connection->shutdownStream($this, false, $errorcode);
+        $this->lastCloseReason = $errorcode;
     }
 
     public function close(int $errorcode = 0): void
     {
         $this->connection->closeStream($this, $errorcode, true);
+        $this->lastCloseReason = $errorcode;
     }
 
     public function reference(): void
@@ -404,6 +408,15 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     public function getConnection(): QuicConnection
     {
         return $this->connection;
+    }
+
+    public function getCloseReason(): int
+    {
+        if (!$this->closed) {
+            throw new \Error("Can only read the close reason from a closed or half-closed stream.");
+        }
+
+        return $this->lastCloseReason;
     }
 
     public function setPriority(int $priority = 127, bool $incremental = true): void

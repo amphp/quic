@@ -5,8 +5,8 @@ namespace Amp\Quic;
 use Amp\ByteStream\ClosedException;
 use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
-use Amp\Socket\InternetAddress;
 use Amp\Socket\ServerSocket;
+use Amp\Socket\SocketAddress;
 use Amp\Socket\SocketException;
 use Amp\Socket\TlsInfo;
 use Amp\Socket\TlsState;
@@ -47,10 +47,9 @@ interface QuicConnection extends UdpClient, ServerSocket, ResourceStream
 
     /**
      * Implementing ServerSocket interface, forwards to {@see getLocalAddress}.
-     *
-     * @return InternetAddress The local address.
+     * @inheritDoc
      */
-    public function getAddress(): InternetAddress;
+    public function getAddress(): SocketAddress;
 
     public function receive(?Cancellation $cancellation = null): ?string;
 

@@ -70,5 +70,9 @@ interface QuicSocket extends Socket
      */
     public function wasReset(): bool;
 
-    // TODO getCloseReason(): int; - it's not implemented upstream yet: https://github.com/cloudflare/quiche/issues/1699
+    /**
+     * Gets the close reason.
+     * Note: for quiche it's not implemented upstream yet: https://github.com/cloudflare/quiche/issues/1699.
+     */
+    public function getCloseReason(): int;
 }
