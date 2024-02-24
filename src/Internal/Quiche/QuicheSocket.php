@@ -67,6 +67,9 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
 
     public bool $incremental = true;
 
+    private static array $suspendedSockets = [];
+    private int $activeWork = 0;
+
     public function __construct(private readonly QuicheConnection $connection, int $id = null)
     {
         $this->onClose = new DeferredFuture();
@@ -161,15 +164,22 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
         $id = $cancellation?->subscribe($this->cancel);
 
         $this->reader = EventLoop::getSuspension();
-        if ($this->referenced) {
-            $this->connection->state->reference();
-        }
+        if ($this->activeWork++ === 0) {
+            if ($this->referenced) {
+                $this->connection->state->reference();
+            }
 
+            self::$suspendedSockets[\spl_object_id($this)] = $this;
+        }
         try {
             return $this->reader->suspend();
         } finally {
-            if ($this->referenced) {
-                $this->connection->state->unreference();
+            if (--$this->activeWork === 0) {
+                unset(self::$suspendedSockets[\spl_object_id($this)]);
+
+                if ($this->referenced) {
+                    $this->connection->state->unreference();
+                }
             }
 
             /** @psalm-suppress PossiblyNullArgument $id is always defined if $cancellation is non-null */
@@ -272,8 +282,26 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
             $this->writes->push([$chunks[$i], $suspension = EventLoop::getSuspension()]);
         }
 
-        if ($err = $suspension->suspend()) {
-            $err();
+        if ($this->activeWork++ === 0) {
+            if ($this->referenced) {
+                $this->connection->state->reference();
+            }
+
+            self::$suspendedSockets[\spl_object_id($this)] = $this;
+        }
+
+        try {
+            if ($err = $suspension->suspend()) {
+                $err();
+            }
+        } finally {
+            if (--$this->activeWork === 0) {
+                unset(self::$suspendedSockets[\spl_object_id($this)]);
+
+                if ($this->referenced) {
+                    $this->connection->state->unreference();
+                }
+            }
         }
     }
 
@@ -317,7 +345,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     {
         if (!$this->referenced) {
             $this->referenced = true;
-            if ($this->reader) {
+            if ($this->activeWork) {
                 $this->connection->state->reference();
             }
         }
@@ -327,7 +355,7 @@ final class QuicheSocket implements QuicSocket, \IteratorAggregate
     {
         if ($this->referenced) {
             $this->referenced = false;
-            if ($this->reader) {
+            if ($this->activeWork) {
                 $this->connection->state->unreference();
             }
         }

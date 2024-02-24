@@ -87,6 +87,9 @@ final class QuicheConnection implements QuicConnection
 
     public int $pingInsertionTime = -1;
 
+    private static array $suspendedConnections = [];
+    private int $activeWork = 0;
+
     /**
      * @param QuicheState<TConfig> $state
      * @param (TConfig is QuicServerConfig ? string : null) $dcid_string
@@ -155,7 +158,7 @@ final class QuicheConnection implements QuicConnection
     {
         if (!$this->referenced) {
             $this->referenced = true;
-            if ($this->acceptor || $this->datagramSuspension) {
+            if ($this->activeWork) {
                 $this->state->reference();
             }
         }
@@ -165,7 +168,7 @@ final class QuicheConnection implements QuicConnection
     {
         if ($this->referenced) {
             $this->referenced = false;
-            if ($this->acceptor || $this->datagramSuspension) {
+            if ($this->activeWork) {
                 $this->state->unreference();
             }
         }
@@ -199,16 +202,23 @@ final class QuicheConnection implements QuicConnection
         $id = $cancellation?->subscribe($this->cancel);
 
         $this->acceptor = EventLoop::getSuspension();
-        if ($this->referenced) {
-            $this->state->reference();
+        if ($this->activeWork++ === 0) {
+            if ($this->referenced) {
+                $this->state->reference();
+            }
+
+            self::$suspendedConnections[\spl_object_id($this)] = $this;
         }
 
         try {
             return $this->acceptor->suspend();
         } finally {
-            $this->acceptor = null;
-            if ($this->referenced) {
-                $this->state->unreference();
+            if (--$this->activeWork === 0) {
+                unset(self::$suspendedConnections[\spl_object_id($this)]);
+
+                if ($this->referenced) {
+                    $this->state->unreference();
+                }
             }
 
             /** @psalm-suppress PossiblyNullArgument $id is always defined if $cancellation is non-null */
@@ -254,6 +264,7 @@ final class QuicheConnection implements QuicConnection
                 $this->streams[$stream] = \WeakReference::create($socket);
                 $socket->readPending = true;
                 $this->acceptor->resume($socket);
+                $this->acceptor = null;
             } else {
                 $this->streamQueue[$stream] = null;
             }
@@ -296,6 +307,7 @@ final class QuicheConnection implements QuicConnection
     {
         $this->closed = true;
         $this->acceptor?->resume();
+        $this->acceptor = null;
         $this->datagramSuspension?->resume();
 
         foreach ($this->streams as $stream) {
@@ -420,15 +432,25 @@ final class QuicheConnection implements QuicConnection
             $this->datagramSuspension->throw($exception);
         });
 
-        try {
+        if ($this->activeWork++ === 0) {
             if ($this->referenced) {
                 $this->state->reference();
             }
+
+            self::$suspendedConnections[\spl_object_id($this)] = $this;
+        }
+
+        try {
             return $this->datagramSuspension->suspend();
         } finally {
-            if ($this->referenced) {
-                $this->state->unreference();
+            if (--$this->activeWork === 0) {
+                unset(self::$suspendedConnections[\spl_object_id($this)]);
+
+                if ($this->referenced) {
+                    $this->state->unreference();
+                }
             }
+
             /** @psalm-suppress PossiblyNullArgument https://github.com/vimeo/psalm/issues/10553 */
             $cancellation?->unsubscribe($id);
         }
@@ -450,8 +472,24 @@ final class QuicheConnection implements QuicConnection
                     }
                 });
                 try {
+                    if ($this->activeWork++ === 0) {
+                        if ($this->referenced) {
+                            $this->state->reference();
+                        }
+
+                        self::$suspendedConnections[\spl_object_id($this)] = $this;
+                    }
+
                     $suspension->suspend();
                 } finally {
+                    if (--$this->activeWork === 0) {
+                        unset(self::$suspendedConnections[\spl_object_id($this)]);
+
+                        if ($this->referenced) {
+                            $this->state->unreference();
+                        }
+                    }
+
                     $cancellation->unsubscribe($id);
                 }
             } else {
